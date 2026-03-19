@@ -139,6 +139,7 @@ export default function App() {
   const [fetchedImages, setFetchedImages] = useState<string[]>([]);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
+  const [fetchMetadataError, setFetchMetadataError] = useState<string | null>(null);
   const [showShareToast, setShowShareToast] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -212,7 +213,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [isAuthReady]);
+  }, [isAuthReady, user]);
 
   // Fetch Items for Selected Registry
   useEffect(() => {
@@ -295,14 +296,21 @@ export default function App() {
   const fetchItemMetadata = async (url: string) => {
     if (!url) return [];
     setIsFetchingMetadata(true);
+    setFetchMetadataError(null);
     try {
       const response = await fetch(`/api/metadata?url=${encodeURIComponent(url)}`);
       if (response.ok) {
         const data = await response.json();
+        if (!data.images || data.images.length === 0) {
+          setFetchMetadataError("No images found on this page. You can paste an image URL below.");
+        }
         return data.images || [];
+      } else {
+        setFetchMetadataError("Failed to fetch images from this URL. You can paste an image URL below.");
       }
     } catch (error) {
       console.error('Error fetching metadata:', error);
+      setFetchMetadataError("An error occurred while fetching images. You can paste an image URL below.");
     } finally {
       setIsFetchingMetadata(false);
     }
@@ -549,12 +557,18 @@ export default function App() {
                     <p className="text-sm font-medium text-stone-900">{user.displayName}</p>
                     <p className="text-xs text-stone-500">{user.email}</p>
                   </div>
-                  <img 
-                    src={user.photoURL || ''} 
-                    alt="Profile" 
-                    className="w-10 h-10 rounded-full border-2 border-white shadow-sm"
-                    referrerPolicy="no-referrer"
-                  />
+                  {user.photoURL ? (
+                    <img 
+                      src={user.photoURL} 
+                      alt="Profile" 
+                      className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full border-2 border-white shadow-sm bg-emerald-100 flex items-center justify-center text-emerald-600">
+                      <UserIcon className="w-5 h-5" />
+                    </div>
+                  )}
                   <Button variant="ghost" onClick={handleLogout} className="p-2">
                     <LogOut className="w-5 h-5" />
                   </Button>
@@ -668,7 +682,10 @@ export default function App() {
                       <Settings className="w-4 h-4 mr-2" />
                       Settings
                     </Button>
-                    <Button onClick={() => setIsAddItemModalOpen(true)}>
+                    <Button onClick={() => {
+                      setFetchMetadataError(null);
+                      setIsAddItemModalOpen(true);
+                    }}>
                       <Plus className="w-5 h-5 mr-2" />
                       Add Item
                     </Button>
@@ -749,6 +766,7 @@ export default function App() {
                               onClick={() => {
                                 setEditingItem(item);
                                 setSelectedImageUrl(item.imageUrl || null);
+                                setFetchMetadataError(null);
                                 setIsEditItemModalOpen(true);
                               }}
                               className="text-stone-300 hover:text-emerald-600 transition-colors"
@@ -1064,6 +1082,12 @@ export default function App() {
             </div>
           </div>
 
+          {fetchMetadataError && (
+            <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
+              {fetchMetadataError}
+            </div>
+          )}
+
           {fetchedImages.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-2">Choose Image</label>
@@ -1100,6 +1124,20 @@ export default function App() {
                   <span className="text-[10px] font-medium uppercase">No Image</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {(!fetchedImages || fetchedImages.length === 0) && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Image URL (Optional)</label>
+              <input 
+                name="imageUrl" 
+                type="url"
+                value={selectedImageUrl || ''}
+                onChange={(e) => setSelectedImageUrl(e.target.value)}
+                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                placeholder="https://..."
+              />
             </div>
           )}
           <div>
@@ -1206,6 +1244,12 @@ export default function App() {
               </div>
             </div>
 
+            {fetchMetadataError && (
+              <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
+                {fetchMetadataError}
+              </div>
+            )}
+
             {(fetchedImages.length > 0 || editingItem.imageUrl) && (
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-2">Choose Image</label>
@@ -1264,6 +1308,20 @@ export default function App() {
                     <span className="text-[10px] font-medium uppercase">No Image</span>
                   </button>
                 </div>
+              </div>
+            )}
+
+            {(!fetchedImages || fetchedImages.length === 0) && !editingItem.imageUrl && (
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Image URL (Optional)</label>
+                <input 
+                  name="imageUrl" 
+                  type="url"
+                  value={selectedImageUrl || ''}
+                  onChange={(e) => setSelectedImageUrl(e.target.value)}
+                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  placeholder="https://..."
+                />
               </div>
             )}
             <div>

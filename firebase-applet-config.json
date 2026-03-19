@@ -1,10 +1,10 @@
 {
-  "projectId": "meetingbot-487113",
-  "appId": "1:429058181700:web:2536773ea6797e55418a11",
-  "apiKey": "AIzaSyB59v5pY5Kb0MXR4HJhGUPgQtn3XCw1gBA",
-  "authDomain": "meetingbot-487113.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-effa9503-3b32-4110-a3a4-b2d1cba22f50",
-  "storageBucket": "meetingbot-487113.firebasestorage.app",
-  "messagingSenderId": "429058181700",
-  "measurementId": ""
+  "apiKey": "AIzaSyBwDKKduz5Jp6vZ-4yUImrWlxi3DDw8OQw",
+  "authDomain": "little-steps-registry.firebaseapp.com",
+  "projectId": "little-steps-registry",
+  "storageBucket": "little-steps-registry.firebasestorage.app",
+  "messagingSenderId": "805765389643",
+  "appId": "1:805765389643:web:189b21df6ae438396a5cce",
+  "measurementId": "G-N1JF6MP5S0",
+  "firestoreDatabaseId": "(default)"
 }
