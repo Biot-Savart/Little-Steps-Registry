@@ -28,6 +28,18 @@ export interface RegistryItem {
   category: string;
   status: 'available' | 'claimed' | 'reserved';
   quantity: number;
+  quantityClaimed?: number;
+  quantityReserved?: number;
+  claims?: { 
+    uid: string; 
+    email: string; 
+    userName: string; 
+    quantity: number; 
+    message?: string; 
+    status: 'claimed' | 'reserved';
+    createdAt: any;
+    reservedUntil?: any;
+  }[];
   claimedBy?: string;
   claimedByEmail?: string;
   claimedAt?: any;

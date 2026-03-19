@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   collection, 
   query, 
@@ -51,7 +51,9 @@ import {
   Clock,
   Ruler,
   Download,
-  Bell
+  Bell,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -100,15 +102,15 @@ const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean; onClose:
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]"
         >
-          <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center">
+          <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center shrink-0">
             <h3 className="text-lg font-semibold text-stone-900">{title}</h3>
-            <button onClick={onClose} className="text-stone-400 hover:text-stone-600 transition-colors">
+            <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-600 transition-colors">
               <Plus className="w-6 h-6 rotate-45" />
             </button>
           </div>
-          <div className="p-6">{children}</div>
+          <div className="p-6 overflow-y-auto custom-scrollbar">{children}</div>
         </motion.div>
       </div>
     )}
@@ -147,6 +149,7 @@ export default function App() {
   const [editingItem, setEditingItem] = useState<RegistryItem | null>(null);
   const [filterCategory, setFilterCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'price'>('date');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [loading, setLoading] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isSubmittingItem, setIsSubmittingItem] = useState(false);
@@ -198,7 +201,7 @@ export default function App() {
     if (!user) return;
 
     try {
-      // 1. Create Firestore Notification
+      // Create Firestore Notification
       const notificationData = {
         userId: ownerId,
         registryId,
@@ -212,37 +215,6 @@ export default function App() {
         createdAt: serverTimestamp()
       };
       await addDoc(collection(db, 'notifications'), notificationData);
-
-      // 2. Send Email via Backend
-      // Fetch owner's email first
-      const ownerDoc = await getDoc(doc(db, 'users', ownerId));
-      const ownerEmail = ownerDoc.exists() ? ownerDoc.data().email : null;
-
-      if (ownerEmail) {
-        const subject = `New ${type} on ${selectedRegistry?.babyName}'s Registry!`;
-        const html = `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; rounded: 12px;">
-            <h2 style="color: #10b981;">Little Steps Registry Notification</h2>
-            <p>Hi there!</p>
-            <p><strong>${user.displayName || 'A guest'}</strong> has just ${type === 'claim' ? 'claimed' : type === 'reserve' ? 'reserved' : 'contributed to'} <strong>${itemName}</strong> on your registry.</p>
-            ${message ? `<p style="font-style: italic; padding: 10px; background: #f9fafb; border-radius: 8px;">"${message}"</p>` : ''}
-            <p>Check your registry for more details.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-            <p style="font-size: 12px; color: #6b7280;">This is an automated message from Little Steps Registry.</p>
-          </div>
-        `;
-
-        const response = await fetch('/api/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: ownerEmail, subject, html })
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Failed to send email notification:', errorData.error);
-        }
-      }
     } catch (error) {
       console.error('Error sending notification:', error);
     }
@@ -279,10 +251,20 @@ export default function App() {
     testConnection();
   }, []);
 
+  const isFirstSnapshot = useRef(true);
+
+  // Request Notification Permission
+  useEffect(() => {
+    if (user && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [user]);
+
   // Notifications Listener
   useEffect(() => {
     if (!user) {
       setNotifications([]);
+      isFirstSnapshot.current = true;
       return;
     }
 
@@ -303,6 +285,25 @@ export default function App() {
         const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
         return timeB - timeA;
       });
+
+      // Browser Notifications Logic
+      if (!isFirstSnapshot.current && typeof Notification !== 'undefined') {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const data = change.doc.data() as AppNotification;
+            if (!data.read) {
+              // Trigger Browser Notification
+              if (Notification.permission === 'granted') {
+                new Notification(`Registry Update!`, {
+                  body: `${data.guestName} has ${data.type === 'claim' ? 'claimed' : data.type === 'reserve' ? 'reserved' : 'contributed to'} ${data.itemName}.`,
+                  icon: '/favicon.ico'
+                });
+              }
+            }
+          }
+        });
+      }
+      isFirstSnapshot.current = false;
 
       setNotifications(newNotifications);
     }, (error) => {
@@ -666,7 +667,10 @@ export default function App() {
         createdAt: serverTimestamp(),
         isGroupGifting,
         amountContributed: 0,
-        contributions: []
+        contributions: [],
+        quantityClaimed: 0,
+        quantityReserved: 0,
+        claims: []
       });
       setIsAddItemModalOpen(false);
       setFetchedImages([]);
@@ -744,19 +748,45 @@ export default function App() {
 
     const formData = new FormData(e.currentTarget);
     const message = formData.get('guestMessage') as string;
+    const quantityToClaim = Number(formData.get('quantity') || 1);
 
     try {
       const itemRef = doc(db, 'items', claimingItem.id);
       const now = Date.now();
       const expiry = Timestamp.fromMillis(now + (48 * 60 * 60 * 1000)); // 48 hours from now
 
-      await updateDoc(itemRef, {
+      const currentClaimed = claimingItem.quantityClaimed || 0;
+      const currentReserved = claimingItem.quantityReserved || 0;
+      
+      const newQuantityClaimed = claimMode === 'claim' ? currentClaimed + quantityToClaim : currentClaimed;
+      const newQuantityReserved = claimMode === 'reserve' ? currentReserved + quantityToClaim : currentReserved;
+      
+      const isFullyClaimed = newQuantityClaimed >= claimingItem.quantity;
+      const isPartiallyClaimed = (newQuantityClaimed + newQuantityReserved) > 0;
+      const isFullyReserved = (newQuantityClaimed + newQuantityReserved) >= claimingItem.quantity;
+
+      const newClaim = {
+        uid: user.uid,
+        email: user.email || '',
+        userName: user.displayName || 'Anonymous',
+        quantity: quantityToClaim,
+        message: message || null,
         status: claimMode === 'claim' ? 'claimed' : 'reserved',
-        claimedBy: user.uid,
-        claimedByEmail: user.email,
-        claimedAt: serverTimestamp(),
-        reservedUntil: claimMode === 'reserve' ? expiry : null,
-        guestMessage: message || null
+        createdAt: Timestamp.now(),
+        reservedUntil: claimMode === 'reserve' ? expiry : null
+      };
+
+      await updateDoc(itemRef, {
+        claims: arrayUnion(newClaim),
+        quantityClaimed: newQuantityClaimed,
+        quantityReserved: newQuantityReserved,
+        status: isFullyClaimed ? 'claimed' : (isFullyReserved ? 'reserved' : 'available'),
+        // Keep these for backward compatibility/single person view if needed
+        claimedBy: isFullyClaimed ? user.uid : (claimingItem.claimedBy || null),
+        claimedByEmail: isFullyClaimed ? user.email : (claimingItem.claimedByEmail || null),
+        claimedAt: isFullyClaimed ? serverTimestamp() : (claimingItem.claimedAt || null),
+        guestMessage: isFullyClaimed ? message : (claimingItem.guestMessage || null),
+        reservedUntil: isFullyReserved && claimMode === 'reserve' ? expiry : (claimingItem.reservedUntil || null)
       });
 
       // Send Notification
@@ -843,18 +873,48 @@ export default function App() {
   };
 
   const unclaimItem = async (item: RegistryItem) => {
-    if (!user || item.claimedBy !== user.uid) return;
+    if (!user) return;
+    
+    // Check if user has any claims
+    const userClaims = item.claims?.filter(c => c.uid === user.uid) || [];
+    const isLegacyOwner = item.claimedBy === user.uid;
+    
+    if (userClaims.length === 0 && !isLegacyOwner) return;
 
     try {
       const itemRef = doc(db, 'items', item.id);
-      await updateDoc(itemRef, {
-        status: 'available',
-        claimedBy: null,
-        claimedByEmail: null,
-        claimedAt: null,
-        reservedUntil: null,
-        guestMessage: null
-      });
+      
+      if (item.claims && item.claims.length > 0) {
+        const updatedClaims = item.claims.filter(c => c.uid !== user.uid);
+        const newQuantityClaimed = updatedClaims.filter(c => c.status === 'claimed').reduce((acc, c) => acc + c.quantity, 0);
+        const newQuantityReserved = updatedClaims.filter(c => c.status === 'reserved').reduce((acc, c) => acc + c.quantity, 0);
+        
+        await updateDoc(itemRef, {
+          claims: updatedClaims,
+          quantityClaimed: newQuantityClaimed,
+          quantityReserved: newQuantityReserved,
+          status: newQuantityClaimed >= item.quantity ? 'claimed' : (newQuantityClaimed + newQuantityReserved >= item.quantity ? 'reserved' : 'available'),
+          // Sync legacy fields
+          claimedBy: newQuantityClaimed >= item.quantity ? (updatedClaims.find(c => c.status === 'claimed')?.uid || null) : null,
+          claimedByEmail: newQuantityClaimed >= item.quantity ? (updatedClaims.find(c => c.status === 'claimed')?.email || null) : null,
+          claimedAt: newQuantityClaimed >= item.quantity ? (updatedClaims.find(c => c.status === 'claimed')?.createdAt || null) : null,
+          guestMessage: newQuantityClaimed >= item.quantity ? (updatedClaims.find(c => c.status === 'claimed')?.message || null) : null,
+          reservedUntil: null
+        });
+      } else {
+        // Legacy unclaim
+        await updateDoc(itemRef, {
+          status: 'available',
+          claimedBy: null,
+          claimedByEmail: null,
+          claimedAt: null,
+          reservedUntil: null,
+          guestMessage: null,
+          quantityClaimed: 0,
+          quantityReserved: 0,
+          claims: []
+        });
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `items/${item.id}`);
     }
@@ -1029,7 +1089,7 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {showInstallPrompt && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
@@ -1159,13 +1219,6 @@ export default function App() {
                       <Settings className="w-4 h-4 mr-2" />
                       Settings
                     </Button>
-                    <Button onClick={() => {
-                      setFetchMetadataError(null);
-                      setIsAddItemModalOpen(true);
-                    }}>
-                      <Plus className="w-5 h-5 mr-2" />
-                      Add Item
-                    </Button>
                   </>
                 )}
               </div>
@@ -1190,7 +1243,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {items.filter(i => i.status === 'claimed').length === 0 ? (
                     <div className="text-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
                       <Clock className="w-10 h-10 text-stone-300 mx-auto mb-3" />
@@ -1250,14 +1303,14 @@ export default function App() {
             ) : (
               <>
                 {/* Filter and Sort */}
-                <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex flex-wrap gap-2">
+                <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex flex-wrap gap-1.5">
                     {['All', 'Gear', 'Clothing', 'Feeding', 'Nursery', 'Toys', 'Other'].map((cat) => (
                       <button
                         key={cat}
                         onClick={() => setFilterCategory(cat)}
                         className={cn(
-                          "px-4 py-2 rounded-xl text-sm font-medium transition-all",
+                          "px-3 py-1.5 rounded-xl text-xs font-medium transition-all",
                           filterCategory === cat 
                             ? "bg-emerald-600 text-white shadow-md shadow-emerald-100" 
                             : "bg-white text-stone-600 border border-stone-100 hover:bg-stone-50"
@@ -1268,22 +1321,63 @@ export default function App() {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
-                    <span className="text-xs font-bold text-stone-400 uppercase tracking-wider ml-2 mr-1">Sort:</span>
-                    <select 
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as any)}
-                      className="bg-transparent text-sm font-medium text-stone-600 outline-none pr-2 py-1 cursor-pointer"
-                    >
-                      <option value="date">Date Added</option>
-                      <option value="name">Name</option>
-                      <option value="price">Price</option>
-                    </select>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
+                      <button
+                        onClick={() => setViewMode('grid')}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-all",
+                          viewMode === 'grid' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
+                        )}
+                        title="Grid View"
+                      >
+                        <LayoutGrid className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setViewMode('list')}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-all",
+                          viewMode === 'list' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
+                        )}
+                        title="List View"
+                      >
+                        <List className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider ml-2 mr-1">Sort:</span>
+                      <select 
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as any)}
+                        className="bg-transparent text-xs font-medium text-stone-600 outline-none pr-2 py-1 cursor-pointer"
+                      >
+                        <option value="date">Date Added</option>
+                        <option value="name">Name</option>
+                        <option value="price">Price</option>
+                      </select>
+                    </div>
+
+                    {user?.uid === selectedRegistry.ownerId && (
+                      <Button 
+                        className="rounded-xl px-4 py-2 text-xs h-auto"
+                        onClick={() => {
+                          setFetchMetadataError(null);
+                          setIsAddItemModalOpen(true);
+                        }}
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        Add Item
+                      </Button>
+                    )}
                   </div>
                 </div>
 
-                {/* Items Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {/* Items Grid/List */}
+                <div className={cn(
+                  "grid",
+                  viewMode === 'grid' ? "gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "gap-3 grid-cols-1"
+                )}>
                   {items
                     .filter(item => filterCategory === 'All' || item.category === filterCategory)
                     .sort((a, b) => {
@@ -1297,22 +1391,32 @@ export default function App() {
                     .map((item) => (
                     <motion.div key={item.id} layout>
                       <Card className={cn(
-                        'h-full flex flex-col transition-all',
+                        'transition-all overflow-hidden',
+                        viewMode === 'grid' ? 'h-full flex flex-col' : 'flex flex-col sm:flex-row',
                         item.status === 'claimed' ? 'opacity-75 grayscale-[0.5]' : 'hover:shadow-md'
                       )}>
                         {item.imageUrl && (
-                          <div className="aspect-square w-full overflow-hidden bg-stone-100 border-b border-stone-50">
+                          <div className={cn(
+                            "relative overflow-hidden bg-stone-100 border-stone-50 shrink-0",
+                            viewMode === 'grid' ? "aspect-[4/3] w-full border-b" : "w-full h-40 sm:w-32 sm:h-auto self-stretch border-b sm:border-b-0 sm:border-r"
+                          )}>
                             <img 
                               src={item.imageUrl} 
                               alt={item.name} 
-                              className="w-full h-full object-cover"
+                              className="absolute inset-0 w-full h-full object-cover"
                               referrerPolicy="no-referrer"
                             />
                           </div>
                         )}
-                        <div className="p-5 flex-1">
-                          <div className="flex justify-between items-start mb-3">
-                            <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
+                        <div className={cn(
+                          "p-3 sm:p-4 flex-1 flex flex-col min-w-0",
+                          viewMode === 'list' && "justify-between"
+                        )}>
+                          <div className={cn(
+                            "flex justify-between items-start",
+                            viewMode === 'grid' ? "mb-2" : "mb-1"
+                          )}>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">
                               {item.category || 'General'}
                             </span>
                             {user?.uid === selectedRegistry.ownerId && (
@@ -1339,27 +1443,84 @@ export default function App() {
                               </div>
                             )}
                           </div>
-                          <h4 className="font-bold text-stone-900 text-lg mb-1">{item.name}</h4>
-                          <p className="text-stone-500 text-sm mb-2 line-clamp-2">{item.description}</p>
-                          <div className="flex items-center gap-2 mb-4">
-                            <span className="text-xs font-medium text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">
+                          <h4 className={cn(
+                            "font-bold text-stone-900 mb-0.5",
+                            viewMode === 'grid' ? "text-base" : "text-sm"
+                          )}>{item.name}</h4>
+                          {item.description && (
+                            <p className={cn(
+                              "text-stone-500 text-xs line-clamp-2",
+                              viewMode === 'grid' ? "mb-1.5" : "mb-1"
+                            )}>
+                              {item.description}
+                            </p>
+                          )}
+                          <div className={cn(
+                            "flex items-center gap-2",
+                            viewMode === 'grid' ? "mb-2" : "mb-1"
+                          )}>
+                            <span className="text-[10px] font-medium text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
                               Qty: {item.quantity || 1}
                             </span>
+                            {item.quantity > 1 && (
+                              <span className={cn(
+                                "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                                (item.quantityClaimed || 0) + (item.quantityReserved || 0) >= item.quantity 
+                                  ? "text-emerald-600 bg-emerald-50" 
+                                  : "text-amber-600 bg-amber-50"
+                              )}>
+                                {item.quantity - (item.quantityClaimed || 0) - (item.quantityReserved || 0)} left
+                              </span>
+                            )}
                           </div>
 
+                          {item.quantity > 1 && (item.quantityClaimed || 0) + (item.quantityReserved || 0) > 0 && (
+                            <div className={cn(
+                              "relative h-1.5 w-full bg-stone-100 rounded-full overflow-hidden",
+                              viewMode === 'grid' ? "mb-2" : "mb-1"
+                            )}>
+                              <div 
+                                className="absolute left-0 top-0 h-full bg-emerald-500 transition-all duration-500 z-10"
+                                style={{ width: `${((item.quantityClaimed || 0) / item.quantity) * 100}%` }}
+                              />
+                              <div 
+                                className="absolute left-0 top-0 h-full bg-amber-400/50 transition-all duration-500"
+                                style={{ width: `${(((item.quantityClaimed || 0) + (item.quantityReserved || 0)) / item.quantity) * 100}%` }}
+                              />
+                            </div>
+                          )}
+
+                          {user?.uid === selectedRegistry.ownerId && item.claims && item.claims.length > 0 && (
+                            <div className={cn(
+                              "pt-2 border-t border-stone-100",
+                              viewMode === 'grid' ? "mb-2" : "mb-1"
+                            )}>
+                              <h5 className="text-[9px] font-bold text-stone-400 mb-1 uppercase tracking-wider">Claimed By</h5>
+                              <div className="flex flex-wrap gap-1">
+                                {item.claims.map((c, idx) => (
+                                  <span key={idx} className="text-[9px] bg-stone-50 px-1.5 py-0.5 rounded border border-stone-100 text-stone-600">
+                                    {c.userName} ({c.quantity})
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           {item.isGroupGifting && item.price != null && (
-                            <div className="mb-4">
-                              <div className="flex justify-between text-xs text-stone-500 mb-1.5">
+                            <div className={cn(
+                              viewMode === 'grid' ? "mb-2" : "mb-1"
+                            )}>
+                              <div className="flex justify-between text-[10px] text-stone-500 mb-1">
                                 <span>Group Gift Progress</span>
                                 <span>{Math.round(((item.amountContributed || 0) / item.price) * 100)}%</span>
                               </div>
-                              <div className="w-full bg-stone-100 rounded-full h-2 overflow-hidden">
+                              <div className="w-full bg-stone-100 rounded-full h-1.5 overflow-hidden">
                                 <div 
                                   className="bg-emerald-500 h-full transition-all duration-500" 
                                   style={{ width: `${Math.min(100, ((item.amountContributed || 0) / item.price) * 100)}%` }}
                                 />
                               </div>
-                              <div className="flex justify-between text-[10px] text-stone-400 mt-1">
+                              <div className="flex justify-between text-[9px] text-stone-400 mt-1">
                                 <span>{getCurrencySymbol(selectedRegistry.currency)}{item.amountContributed || 0}</span>
                                 <span>Target: {getCurrencySymbol(selectedRegistry.currency)}{item.price}</span>
                               </div>
@@ -1367,9 +1528,12 @@ export default function App() {
                           )}
 
                           {user?.uid === selectedRegistry.ownerId && item.isGroupGifting && item.contributions && item.contributions.length > 0 && (
-                            <div className="mb-4 pt-4 border-t border-stone-100">
-                              <h5 className="text-[10px] font-bold text-stone-400 mb-2 uppercase tracking-wider">Contributions</h5>
-                              <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                            <div className={cn(
+                              "pt-2 border-t border-stone-100",
+                              viewMode === 'grid' ? "mb-2" : "mb-1"
+                            )}>
+                              <h5 className="text-[9px] font-bold text-stone-400 mb-1 uppercase tracking-wider">Contributions</h5>
+                              <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1 custom-scrollbar">
                                 {item.contributions.map((c, idx) => (
                                   <div key={idx} className="text-[11px] bg-stone-50 p-2 rounded-lg border border-stone-100">
                                     <div className="flex justify-between font-medium text-stone-800 mb-0.5">
@@ -1385,7 +1549,10 @@ export default function App() {
                           
                           <div className="flex items-center justify-between mt-auto">
                             {item.price != null ? (
-                              <span className="text-xl font-bold text-stone-900">
+                              <span className={cn(
+                                "font-bold text-stone-900",
+                                viewMode === 'grid' ? "text-lg" : "text-sm"
+                              )}>
                                 {getCurrencySymbol(selectedRegistry.currency)}{item.price}
                               </span>
                             ) : (
@@ -1396,125 +1563,164 @@ export default function App() {
                                 href={item.url} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                                className={cn(
+                                  "inline-flex items-center gap-1 bg-stone-900 hover:bg-stone-800 text-white font-medium rounded-lg transition-colors shadow-sm",
+                                  viewMode === 'grid' ? "px-3 py-1.5 text-xs" : "px-2.5 py-1 text-[10px]"
+                                )}
                               >
                                 <span>View Item</span>
-                                <ExternalLink className="w-4 h-4" />
+                                <ExternalLink className={viewMode === 'grid' ? "w-4 h-4" : "w-2.5 h-2.5"} />
                               </a>
                             )}
                           </div>
                         </div>
 
-                        <div className="px-5 py-4 bg-stone-50 border-t border-stone-100">
-                          {item.isGroupGifting && item.status === 'available' ? (
-                            <div className="flex gap-2">
-                              <Button 
-                                className="flex-1" 
-                                variant="primary"
-                                onClick={() => {
-                                  setContributingItem(item);
-                                  setIsContributeModalOpen(true);
-                                }}
-                                disabled={!user}
-                                title={!user ? "Sign in to contribute" : ""}
-                              >
-                                <Gift className="w-4 h-4 mr-2" />
-                                {user ? 'Contribute' : 'Sign in'}
-                              </Button>
-                              <Button 
-                                className="flex-1" 
-                                variant="outline"
-                                onClick={() => claimItem(item)}
-                                disabled={!user}
-                                title={!user ? "Sign in to claim full item" : ""}
-                              >
-                                <Heart className="w-4 h-4 mr-2" />
-                                {user ? 'Claim Full' : 'Sign in'}
-                              </Button>
-                            </div>
-                          ) : item.status === 'claimed' ? (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold">
-                                  <CheckCircle className="w-4 h-4" />
-                                  <span>Claimed</span>
-                                </div>
-                                {user?.uid === item.claimedBy && (
-                                  <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-xs h-8 px-2">
-                                    Unclaim
+                        <div className={cn(
+                          "p-3 sm:p-4 bg-stone-50 border-stone-100 shrink-0",
+                          viewMode === 'grid' ? "border-t" : "border-t sm:border-t-0 sm:border-l flex flex-col justify-center w-full sm:w-40"
+                        )}>
+                          {(() => {
+                            const userClaim = item.claims?.find(c => c.uid === user?.uid);
+                            const isLegacyOwner = item.claimedBy === user?.uid;
+                            const hasClaim = userClaim || isLegacyOwner;
+                            const remainingQty = item.quantity - (item.quantityClaimed || 0) - (item.quantityReserved || 0);
+
+                            if (item.isGroupGifting && item.status === 'available') {
+                              return (
+                                <div className={cn(
+                                  "flex gap-2",
+                                  viewMode === 'list' ? "flex-col" : "flex-row"
+                                )}>
+                                  <Button 
+                                    className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
+                                    variant="primary"
+                                    onClick={() => {
+                                      setContributingItem(item);
+                                      setIsContributeModalOpen(true);
+                                    }}
+                                    disabled={!user}
+                                    title={!user ? "Sign in to contribute" : ""}
+                                  >
+                                    <Gift className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
+                                    {user ? 'Contribute' : 'Sign in'}
                                   </Button>
-                                )}
-                              </div>
-                              {item.guestMessage && (
-                                <div className="p-3 bg-white rounded-xl border border-stone-100 italic text-xs text-stone-600 shadow-sm">
-                                  "{item.guestMessage}"
+                                  <Button 
+                                    className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
+                                    variant="outline"
+                                    onClick={() => claimItem(item)}
+                                    disabled={!user}
+                                    title={!user ? "Sign in to claim full item" : ""}
+                                  >
+                                    <Heart className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
+                                    {user ? 'Claim Full' : 'Sign in'}
+                                  </Button>
                                 </div>
-                              )}
-                              {user?.uid === selectedRegistry.ownerId && (
-                                <Button 
-                                  variant={item.thankYouSent ? "outline" : "primary"}
-                                  onClick={() => toggleThankYouSent(item)}
-                                  className="w-full text-xs h-9"
-                                >
-                                  {item.thankYouSent ? (
-                                    <>
-                                      <CheckCircle className="w-3 h-3 mr-1.5" />
-                                      Thank You Sent
-                                    </>
-                                  ) : (
-                                    'Mark Thank You Sent'
-                                  )}
-                                </Button>
-                              )}
-                            </div>
-                          ) : item.status === 'reserved' ? (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 text-amber-600 text-sm font-semibold">
-                                  <Clock className="w-4 h-4" />
-                                  <span>Reserved</span>
-                                </div>
-                                {item.reservedUntil && (
-                                  <div className="text-[10px] text-amber-500 font-medium bg-amber-50 px-2 py-0.5 rounded-full">
-                                    Expires in {Math.max(0, Math.ceil(((typeof item.reservedUntil === 'number' ? item.reservedUntil : item.reservedUntil.toMillis()) - Date.now()) / (60 * 60 * 1000)))}h
+                              );
+                            }
+
+                            if (hasClaim) {
+                              const claimStatus = userClaim?.status || item.status;
+                              const isClaimed = claimStatus === 'claimed';
+                              const claimQty = userClaim?.quantity || item.quantity;
+
+                              return (
+                                <div className={cn(
+                                  viewMode === 'grid' ? "space-y-3" : "space-y-1.5"
+                                )}>
+                                  <div className="flex items-center justify-between">
+                                    <div className={cn(
+                                      "flex items-center gap-2 text-sm font-semibold",
+                                      isClaimed ? "text-emerald-600" : "text-amber-600"
+                                    )}>
+                                      {isClaimed ? (
+                                        <CheckCircle className={viewMode === 'grid' ? "w-4 h-4" : "w-3.5 h-3.5"} />
+                                      ) : (
+                                        <Clock className={viewMode === 'grid' ? "w-4 h-4" : "w-3.5 h-3.5"} />
+                                      )}
+                                      <span>{isClaimed ? 'Claimed' : 'Reserved'}{item.quantity > 1 ? ` (${claimQty})` : ''}</span>
+                                    </div>
+                                    <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-[10px] h-7 px-2">
+                                      {isClaimed ? 'Unclaim' : 'Unreserve'}
+                                    </Button>
                                   </div>
-                                )}
-                                {user?.uid === item.claimedBy && (
-                                  <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-xs h-8 px-2">
-                                    Unreserve
-                                  </Button>
-                                )}
-                              </div>
-                              {item.guestMessage && (
-                                <div className="p-3 bg-white rounded-xl border border-stone-100 italic text-xs text-stone-600 shadow-sm">
-                                  "{item.guestMessage}"
+                                  
+                                  {user?.uid === selectedRegistry.ownerId && isClaimed && (
+                                    <Button 
+                                      variant={item.thankYouSent ? "outline" : "primary"}
+                                      onClick={() => toggleThankYouSent(item)}
+                                      className="w-full text-[10px] h-8"
+                                    >
+                                      {item.thankYouSent ? (
+                                        <>
+                                          <CheckCircle className="w-3 h-3 mr-1.5" />
+                                          Thank You Sent
+                                        </>
+                                      ) : (
+                                        'Mark Thank You Sent'
+                                      )}
+                                    </Button>
+                                  )}
+                                  
+                                  {remainingQty > 0 && (
+                                    <Button 
+                                      variant="outline" 
+                                      onClick={() => claimItem(item)}
+                                      className="w-full text-[10px] h-8 mt-2 border-dashed"
+                                    >
+                                      <Plus className="w-3 h-3 mr-1.5" />
+                                      Claim More ({remainingQty})
+                                    </Button>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex gap-2">
-                              <Button 
-                                className="flex-1" 
-                                variant="outline"
-                                onClick={() => claimItem(item)}
-                                disabled={!user}
-                                title={!user ? "Sign in to claim this item" : ""}
-                              >
-                                <Heart className="w-4 h-4 mr-2" />
-                                {user ? 'Claim' : 'Sign in'}
-                              </Button>
-                              <Button 
-                                className="flex-1" 
-                                variant="ghost"
-                                onClick={() => reserveItem(item)}
-                                disabled={!user}
-                                title={!user ? "Sign in to reserve this item" : ""}
-                              >
-                                <Clock className="w-4 h-4 mr-2" />
-                                {user ? 'Reserve' : 'Sign in'}
-                              </Button>
-                            </div>
-                          )}
+                              );
+                            }
+
+                            if (item.status === 'claimed') {
+                              return (
+                                <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold justify-center py-2">
+                                  <CheckCircle className="w-4 h-4" />
+                                  <span>Fully Claimed</span>
+                                </div>
+                              );
+                            }
+
+                            if (item.status === 'reserved' && remainingQty <= 0) {
+                              return (
+                                <div className="flex items-center gap-2 text-amber-600 text-sm font-semibold justify-center py-2">
+                                  <Clock className="w-4 h-4" />
+                                  <span>Fully Reserved</span>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className={cn(
+                                "flex gap-2",
+                                viewMode === 'list' ? "flex-col" : "flex-row"
+                              )}>
+                                <Button 
+                                  className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
+                                  variant="outline"
+                                  onClick={() => claimItem(item)}
+                                  disabled={!user || remainingQty <= 0}
+                                  title={!user ? "Sign in to claim this item" : ""}
+                                >
+                                  <Heart className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
+                                  {user ? (item.quantity > 1 ? 'Claim Some' : 'Claim') : 'Sign in'}
+                                </Button>
+                                <Button 
+                                  className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
+                                  variant="ghost"
+                                  onClick={() => reserveItem(item)}
+                                  disabled={!user || remainingQty <= 0}
+                                  title={!user ? "Sign in to reserve this item" : ""}
+                                >
+                                  <Clock className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
+                                  {user ? (item.quantity > 1 ? 'Reserve Some' : 'Reserve') : 'Sign in'}
+                                </Button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </Card>
                     </motion.div>
@@ -1562,7 +1768,7 @@ export default function App() {
               <input 
                 name="displayName" 
                 required 
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="Your name"
               />
             </div>
@@ -1573,7 +1779,7 @@ export default function App() {
               name="email" 
               type="email"
               required 
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="you@example.com"
             />
           </div>
@@ -1584,7 +1790,7 @@ export default function App() {
               type="password"
               required 
               minLength={6}
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="••••••••"
             />
           </div>
@@ -1654,7 +1860,7 @@ export default function App() {
             <input 
               name="babyName" 
               required 
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="e.g. Baby Smith"
             />
           </div>
@@ -1663,7 +1869,7 @@ export default function App() {
             <input 
               name="dueDate" 
               type="date"
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             />
           </div>
           <div>
@@ -1671,7 +1877,7 @@ export default function App() {
             <textarea 
               name="description" 
               rows={3}
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="A little bit about your registry..."
             />
           </div>
@@ -1681,7 +1887,7 @@ export default function App() {
               <select 
                 name="currency"
                 defaultValue="USD"
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               >
                 {CURRENCIES.map(c => (
                   <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
@@ -1693,7 +1899,7 @@ export default function App() {
               <select 
                 name="hemisphere"
                 defaultValue="southern"
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               >
                 <option value="northern">Northern Hemisphere</option>
                 <option value="southern">Southern Hemisphere</option>
@@ -1720,7 +1926,7 @@ export default function App() {
               name="name" 
               id="addItemName"
               required 
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="e.g. Baby Stroller"
             />
           </div>
@@ -1731,7 +1937,7 @@ export default function App() {
                 name="price" 
                 type="number"
                 step="0.01"
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="0.00"
               />
             </div>
@@ -1742,7 +1948,7 @@ export default function App() {
                 type="number"
                 min="1"
                 defaultValue="1"
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               />
             </div>
           </div>
@@ -1750,7 +1956,7 @@ export default function App() {
             <label className="block text-sm font-medium text-stone-700 mb-1">Category</label>
             <select 
               name="category"
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             >
                 <option value="Gear">Gear</option>
                 <option value="Clothing">Clothing</option>
@@ -1778,7 +1984,7 @@ export default function App() {
                 name="url" 
                 id="addItemUrl"
                 type="url"
-                className="flex-1 rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="https://..."
                 onBlur={async (e) => {
                   if (e.target.value) {
@@ -1870,7 +2076,7 @@ export default function App() {
                 type="url"
                 value={selectedImageUrl || ''}
                 onChange={(e) => setSelectedImageUrl(e.target.value)}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="https://..."
               />
             </div>
@@ -1880,7 +2086,7 @@ export default function App() {
             <textarea 
               name="description" 
               rows={2}
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="Size, color, or other details..."
             />
           </div>
@@ -1909,7 +2115,7 @@ export default function App() {
                 id="editItemName"
                 required 
                 defaultValue={editingItem.name}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="e.g. Baby Stroller"
               />
             </div>
@@ -1921,7 +2127,7 @@ export default function App() {
                   type="number"
                   step="0.01"
                   defaultValue={editingItem.price}
-                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                   placeholder="0.00"
                 />
               </div>
@@ -1932,7 +2138,7 @@ export default function App() {
                   type="number"
                   min="1"
                   defaultValue={editingItem.quantity || 1}
-                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 />
               </div>
             </div>
@@ -1941,7 +2147,7 @@ export default function App() {
               <select 
                 name="category"
                 defaultValue={editingItem.category}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               >
                   <option value="Gear">Gear</option>
                   <option value="Clothing">Clothing</option>
@@ -1971,7 +2177,7 @@ export default function App() {
                   id="editItemUrl"
                   type="url"
                   defaultValue={editingItem.url}
-                  className="flex-1 rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                   placeholder="https://..."
                   onBlur={async (e) => {
                     if (e.target.value) {
@@ -2085,7 +2291,7 @@ export default function App() {
                   type="url"
                   value={selectedImageUrl || ''}
                   onChange={(e) => setSelectedImageUrl(e.target.value)}
-                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                   placeholder="https://..."
                 />
               </div>
@@ -2096,7 +2302,7 @@ export default function App() {
                 name="description" 
                 rows={2}
                 defaultValue={editingItem.description}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="Size, color, or other details..."
               />
             </div>
@@ -2160,7 +2366,7 @@ export default function App() {
                 name="babyName" 
                 required 
                 defaultValue={selectedRegistry.babyName}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="e.g. Baby Smith"
               />
             </div>
@@ -2170,7 +2376,7 @@ export default function App() {
                 name="dueDate" 
                 type="date"
                 defaultValue={selectedRegistry.dueDate}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               />
             </div>
             <div>
@@ -2179,7 +2385,7 @@ export default function App() {
                 name="description" 
                 rows={3}
                 defaultValue={selectedRegistry.description}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="A little bit about your registry..."
               />
             </div>
@@ -2189,7 +2395,7 @@ export default function App() {
                 <select 
                   name="currency"
                   defaultValue={selectedRegistry.currency || 'USD'}
-                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 >
                   {CURRENCIES.map(c => (
                     <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
@@ -2201,7 +2407,7 @@ export default function App() {
                 <select 
                   name="hemisphere"
                   defaultValue={selectedRegistry.hemisphere || 'southern'}
-                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 >
                   <option value="northern">Northern Hemisphere</option>
                   <option value="southern">Southern Hemisphere</option>
@@ -2230,8 +2436,31 @@ export default function App() {
             <div>
               <h4 className="font-bold text-stone-900">{claimingItem?.name}</h4>
               <p className="text-sm text-stone-500 line-clamp-1">{claimingItem?.description}</p>
+              {claimingItem && claimingItem.quantity > 1 && (
+                <div className="mt-1 flex items-center gap-2 text-xs font-medium text-emerald-600">
+                  <Package className="w-3 h-3" />
+                  <span>{claimingItem.quantity - (claimingItem.quantityClaimed || 0) - (claimingItem.quantityReserved || 0)} remaining of {claimingItem.quantity}</span>
+                </div>
+              )}
             </div>
           </div>
+
+          {claimingItem && claimingItem.quantity > 1 && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                How many are you {claimMode === 'claim' ? 'claiming' : 'reserving'}?
+              </label>
+              <input
+                type="number"
+                name="quantity"
+                min={1}
+                max={claimingItem.quantity - (claimingItem.quantityClaimed || 0) - (claimingItem.quantityReserved || 0)}
+                defaultValue={1}
+                required
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">
@@ -2240,7 +2469,7 @@ export default function App() {
             <textarea
               name="guestMessage"
               rows={3}
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="Congratulations! We're so excited for you..."
             />
           </div>
@@ -2295,7 +2524,7 @@ export default function App() {
                 min="0.01"
                 max={(contributingItem.price || 0) - (contributingItem.amountContributed || 0)}
                 required
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="0.00"
               />
             </div>
@@ -2307,7 +2536,7 @@ export default function App() {
               <textarea
                 name="message"
                 rows={3}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="We're so happy to contribute to this gift!..."
               />
             </div>

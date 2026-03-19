@@ -41,7 +41,10 @@
         "imageUrl": { "type": "string" },
         "category": { "type": "string" },
         "quantity": { "type": "integer" },
-        "status": { "type": "string", "enum": ["available", "claimed"] },
+        "quantityClaimed": { "type": "integer" },
+        "quantityReserved": { "type": "integer" },
+        "claims": { "type": "array" },
+        "status": { "type": "string", "enum": ["available", "claimed", "reserved"] },
         "claimedBy": { "type": "string" },
         "claimedByEmail": { "type": "string" },
         "claimedAt": { "type": "string", "format": "date-time" },
@@ -50,7 +53,8 @@
         "thankYouSent": { "type": "boolean" },
         "isGroupGifting": { "type": "boolean" },
         "amountContributed": { "type": "number" },
-        "contributions": { "type": "array" }
+        "contributions": { "type": "array" },
+        "reservedUntil": { "type": "string", "format": "date-time" }
       },
       "required": ["registryId", "name", "status"]
     },
