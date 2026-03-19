@@ -15,8 +15,9 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
   onAuthStateChanged, 
   signOut,
   User
@@ -139,6 +140,9 @@ export default function App() {
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
   const [showShareToast, setShowShareToast] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Connection Test
   useEffect(() => {
@@ -248,17 +252,38 @@ export default function App() {
     }
   }, [isAuthReady]);
 
-  const handleLogin = async () => {
+  const handleAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     if (isLoggingIn) return;
     setIsLoggingIn(true);
+    setAuthError(null);
+
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const displayName = formData.get('displayName') as string;
+
     try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-closed-by-user') {
-        console.log('Login popup was closed or cancelled.');
+      if (authMode === 'register') {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(userCredential.user, { displayName });
+        // onAuthStateChanged will handle Firestore user creation
       } else {
-        console.error('Login failed:', error);
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+      setIsAuthModalOpen(false);
+    } catch (error: any) {
+      console.error('Authentication failed:', error);
+      if (error.code === 'auth/invalid-credential') {
+        setAuthError('Invalid email or password.');
+      } else if (error.code === 'auth/email-already-in-use') {
+        setAuthError('An account with this email already exists.');
+      } else if (error.code === 'auth/weak-password') {
+        setAuthError('Password should be at least 6 characters.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setAuthError('Email/Password sign-in is not enabled in Firebase. Please enable it in the Firebase Console under Authentication > Sign-in method.');
+      } else {
+        setAuthError(error.message || 'Authentication failed. Please try again.');
       }
     } finally {
       setIsLoggingIn(false);
@@ -535,8 +560,8 @@ export default function App() {
                   </Button>
                 </div>
               ) : (
-                <Button onClick={handleLogin} disabled={isLoggingIn}>
-                  {isLoggingIn ? 'Signing in...' : 'Sign In'}
+                <Button onClick={() => setIsAuthModalOpen(true)} disabled={isLoggingIn}>
+                  Sign In
                 </Button>
               )}
             </div>
@@ -844,6 +869,70 @@ export default function App() {
       </main>
 
       {/* Modals */}
+      <Modal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setAuthError(null);
+        }} 
+        title={authMode === 'login' ? 'Sign In' : 'Create Account'}
+      >
+        <form onSubmit={handleAuthSubmit} className="space-y-4">
+          {authError && (
+            <div className="p-3 bg-rose-50 text-rose-600 text-sm rounded-xl border border-rose-100">
+              {authError}
+            </div>
+          )}
+          {authMode === 'register' && (
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Name</label>
+              <input 
+                name="displayName" 
+                required 
+                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                placeholder="Your name"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
+            <input 
+              name="email" 
+              type="email"
+              required 
+              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              placeholder="you@example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Password</label>
+            <input 
+              name="password" 
+              type="password"
+              required 
+              minLength={6}
+              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              placeholder="••••••••"
+            />
+          </div>
+          <Button type="submit" className="w-full py-3" disabled={isLoggingIn}>
+            {isLoggingIn ? 'Please wait...' : (authMode === 'login' ? 'Sign In' : 'Create Account')}
+          </Button>
+          <div className="text-center mt-4">
+            <button 
+              type="button" 
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+                setAuthError(null);
+              }}
+              className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+            >
+              {authMode === 'login' ? "Don't have an account? Register" : "Already have an account? Sign in"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <Modal 
         isOpen={isCreateModalOpen} 
         onClose={() => setIsCreateModalOpen(false)} 
