@@ -232,11 +232,16 @@ export default function App() {
           </div>
         `;
 
-        await fetch('/api/notify', {
+        const response = await fetch('/api/notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ to: ownerEmail, subject, html })
         });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Failed to send email notification:', errorData.error);
+        }
       }
     } catch (error) {
       console.error('Error sending notification:', error);

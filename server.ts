@@ -40,21 +40,28 @@ async function startServer() {
 
     try {
       const { data, error } = await resendClient.emails.send({
-        from: 'Little Steps Registry <notifications@resend.dev>',
-        to: [to],
+        from: 'Little Steps Registry <onboarding@resend.dev>',
+        to: to,
         subject: subject,
         html: html,
       });
 
       if (error) {
         console.error("Resend error:", error);
-        return res.status(500).json({ error: error.message });
+        let errorMessage = error.message;
+        
+        // If it's a validation error, it's likely because they're sending to a non-verified email on the free tier
+        if (error.name === 'validation_error') {
+          errorMessage = `Resend Validation Error: ${error.message}. To send to any recipient, you must verify a custom domain in your Resend dashboard (resend.com/domains).`;
+        }
+        
+        return res.status(400).json({ error: errorMessage, details: error });
       }
 
       res.json({ success: true, data });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sending email:", error);
-      res.status(500).json({ error: "Failed to send email" });
+      res.status(500).json({ error: error.message || "Failed to send email" });
     }
   });
 

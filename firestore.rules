@@ -69,7 +69,7 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role']) &&
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'createdAt']) &&
              data.uid is string && data.uid.size() > 0 &&
              data.email is string && isValidEmail(data.email);
     }
@@ -109,8 +109,14 @@ service cloud.firestore {
     function isValidNotification(data) {
       return hasOnlyAllowedFields(['userId', 'registryId', 'itemId', 'itemName', 'type', 'message', 'guestName', 'guestEmail', 'read', 'createdAt']) &&
              data.userId is string && data.userId.size() > 0 &&
+             data.registryId is string &&
+             data.itemId is string &&
+             data.itemName is string &&
              data.type in ['claim', 'reserve', 'contribution'] &&
-             data.message is string && data.message.size() > 0 &&
+             data.message is string &&
+             data.guestName is string &&
+             data.guestEmail is string &&
+             data.read is bool &&
              data.createdAt is timestamp;
     }
 
