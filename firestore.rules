@@ -1,0 +1,142 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required, email format)
+    //   - displayName: string
+    //   - photoURL: string
+    //   - role: string (parent/guest)
+    //
+    // Collection: registries
+    // Document ID: {registryId}
+    // Fields:
+    //   - babyName: string (required)
+    //   - dueDate: string
+    //   - description: string
+    //   - ownerId: string (required)
+    //   - createdAt: timestamp
+    //
+    // Collection: items
+    // Document ID: {itemId}
+    // Fields:
+    //   - registryId: string (required)
+    //   - name: string (required)
+    //   - description: string
+    //   - price: number
+    //   - url: string
+    //   - category: string
+    //   - quantity: number
+    //   - status: string (available/claimed)
+    //   - claimedBy: string
+    //   - claimedAt: timestamp
+    //   - addedBy: string
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "ryno@plentify.co.za" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email);
+    }
+
+    function isValidRegistry(data) {
+      return hasOnlyAllowedFields(['babyName', 'dueDate', 'description', 'ownerId', 'createdAt', 'currency']) &&
+             data.babyName is string && data.babyName.size() > 0 && data.babyName.size() < 100 &&
+             data.ownerId is string && data.ownerId == request.auth.uid;
+    }
+
+    function isValidItem(data) {
+      return hasOnlyAllowedFields(['registryId', 'name', 'description', 'price', 'imageUrl', 'url', 'category', 'quantity', 'status', 'claimedBy', 'claimedAt', 'addedBy', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.registryId is string &&
+             (!('url' in data) || data.url == null || data.url is string) &&
+             (!('description' in data) || data.description == null || data.description is string) &&
+             data.category is string &&
+             data.addedBy == request.auth.uid &&
+             (!('price' in data) || data.price == null || data.price is number) &&
+             (!('imageUrl' in data) || data.imageUrl == null || data.imageUrl is string) &&
+             (!('claimedBy' in data) || data.claimedBy == null || data.claimedBy is string) &&
+             (!('claimedAt' in data) || data.claimedAt == null || data.claimedAt is timestamp) &&
+             (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp) &&
+             data.quantity is int && data.quantity > 0 &&
+             data.status in ['available', 'claimed', 'reserved'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && isValidUser(request.resource.data);
+    }
+
+    match /registries/{registryId} {
+      // Publicly viewable by ID or by owner query
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidRegistry(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(resource.data.ownerId) || isAdmin()) && isValidRegistry(request.resource.data);
+      allow delete: if isAuthenticated() && (isOwner(resource.data.ownerId) || isAdmin());
+    }
+
+    match /items/{itemId} {
+      allow read: if true; // Publicly viewable
+      allow create: if isAuthenticated() && isValidItem(request.resource.data);
+      allow update: if isAuthenticated() && (
+        // Owner can update anything
+        (exists(/databases/$(database)/documents/registries/$(resource.data.registryId)) && 
+         get(/databases/$(database)/documents/registries/$(resource.data.registryId)).data.ownerId == request.auth.uid) ||
+        // Guests can only update status and claimedBy/claimedAt
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedAt']) &&
+         request.resource.data.status in ['claimed', 'reserved'] && resource.data.status == 'available') ||
+        // Guests can unclaim/unreserve if they are the ones who claimed/reserved it
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedAt']) &&
+         request.resource.data.status == 'available' && resource.data.status in ['claimed', 'reserved'] && resource.data.claimedBy == request.auth.uid)
+      ) && isValidItem(request.resource.data);
+      allow delete: if isAuthenticated() && (
+        exists(/databases/$(database)/documents/registries/$(resource.data.registryId)) && 
+        get(/databases/$(database)/documents/registries/$(resource.data.registryId)).data.ownerId == request.auth.uid
+      );
+    }
+  }
+}

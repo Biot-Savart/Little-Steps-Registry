@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["parent", "guest"] }
+      },
+      "required": ["uid", "email"]
+    },
+    "Registry": {
+      "title": "Registry",
+      "description": "A baby gift registry",
+      "type": "object",
+      "properties": {
+        "babyName": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "currency": { "type": "string" }
+      },
+      "required": ["babyName", "ownerId"]
+    },
+    "RegistryItem": {
+      "title": "RegistryItem",
+      "description": "An item in a gift registry",
+      "type": "object",
+      "properties": {
+        "registryId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "url": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "status": { "type": "string", "enum": ["available", "claimed"] },
+        "claimedBy": { "type": "string" },
+        "claimedAt": { "type": "string", "format": "date-time" },
+        "addedBy": { "type": "string" }
+      },
+      "required": ["registryId", "name", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/registries/{registryId}": {
+      "schema": "Registry",
+      "description": "Baby registries"
+    },
+    "/items/{itemId}": {
+      "schema": "RegistryItem",
+      "description": "Items within registries"
+    }
+  }
+}
