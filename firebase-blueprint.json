@@ -23,7 +23,8 @@
         "description": { "type": "string" },
         "ownerId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "currency": { "type": "string" }
+        "currency": { "type": "string" },
+        "hemisphere": { "type": "string", "enum": ["northern", "southern"] }
       },
       "required": ["babyName", "ownerId"]
     },
@@ -42,10 +43,34 @@
         "quantity": { "type": "integer" },
         "status": { "type": "string", "enum": ["available", "claimed"] },
         "claimedBy": { "type": "string" },
+        "claimedByEmail": { "type": "string" },
         "claimedAt": { "type": "string", "format": "date-time" },
-        "addedBy": { "type": "string" }
+        "addedBy": { "type": "string" },
+        "guestMessage": { "type": "string" },
+        "thankYouSent": { "type": "boolean" },
+        "isGroupGifting": { "type": "boolean" },
+        "amountContributed": { "type": "number" },
+        "contributions": { "type": "array" }
       },
       "required": ["registryId", "name", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification for the registry owner",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "registryId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "type": { "type": "string", "enum": ["claim", "reserve", "contribution"] },
+        "message": { "type": "string" },
+        "guestName": { "type": "string" },
+        "guestEmail": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "message", "createdAt"]
     }
   },
   "firestore": {
@@ -60,6 +85,10 @@
     "/items/{itemId}": {
       "schema": "RegistryItem",
       "description": "Items within registries"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
     }
   }
 }

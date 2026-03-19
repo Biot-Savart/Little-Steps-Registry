@@ -1,9 +1,17 @@
 @import "tailwindcss";
 
-@utility scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+@utility custom-scrollbar {
   &::-webkit-scrollbar {
-    display: none;
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #e5e7eb;
+    border-radius: 10px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: #d1d5db;
   }
 }

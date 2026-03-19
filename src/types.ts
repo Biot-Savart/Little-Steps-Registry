@@ -14,6 +14,7 @@ export interface Registry {
   ownerId: string;
   createdAt: any;
   currency?: string;
+  hemisphere?: 'northern' | 'southern';
 }
 
 export interface RegistryItem {
@@ -28,9 +29,30 @@ export interface RegistryItem {
   status: 'available' | 'claimed' | 'reserved';
   quantity: number;
   claimedBy?: string;
+  claimedByEmail?: string;
   claimedAt?: any;
+  guestMessage?: string;
+  thankYouSent?: boolean;
+  isGroupGifting?: boolean;
+  amountContributed?: number;
+  contributions?: { uid: string; email: string; userName: string; amount: number; message?: string; createdAt: any }[];
+  reservedUntil?: any;
   addedBy: string;
   createdAt?: any;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  registryId: string;
+  itemId?: string;
+  itemName?: string;
+  type: 'claim' | 'reserve' | 'contribution';
+  message: string;
+  guestName: string;
+  guestEmail: string;
+  read: boolean;
+  createdAt: any;
 }
 
 export enum OperationType {

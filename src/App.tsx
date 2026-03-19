@@ -12,7 +12,9 @@ import {
   getDoc,
   setDoc,
   getDocs,
-  getDocFromServer
+  getDocFromServer,
+  arrayUnion,
+  Timestamp
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword,
@@ -20,10 +22,12 @@ import {
   updateProfile,
   onAuthStateChanged, 
   signOut,
-  User
+  User,
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { db, auth } from './firebase';
-import { Registry, RegistryItem, UserProfile, OperationType } from './types';
+import { Registry, RegistryItem, UserProfile, OperationType, Notification as AppNotification } from './types';
 import { handleFirestoreError } from './utils';
 import { 
   Plus, 
@@ -44,7 +48,10 @@ import {
   Copy,
   Check,
   Settings,
-  Clock
+  Clock,
+  Ruler,
+  Download,
+  Bell
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -130,6 +137,13 @@ export default function App() {
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isSizeGuideModalOpen, setIsSizeGuideModalOpen] = useState(false);
+  const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
+  const [isContributeModalOpen, setIsContributeModalOpen] = useState(false);
+  const [isThankYouTrackerOpen, setIsThankYouTrackerOpen] = useState(false);
+  const [claimingItem, setClaimingItem] = useState<RegistryItem | null>(null);
+  const [contributingItem, setContributingItem] = useState<RegistryItem | null>(null);
+  const [claimMode, setClaimMode] = useState<'claim' | 'reserve'>('claim');
   const [editingItem, setEditingItem] = useState<RegistryItem | null>(null);
   const [filterCategory, setFilterCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'price'>('date');
@@ -144,6 +158,107 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+
+  // Handle PWA Install Prompt
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallPrompt(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      setShowInstallPrompt(false);
+    }
+  };
+
+  // Send Notification Helper
+  const sendNotification = async (
+    ownerId: string, 
+    registryId: string, 
+    itemId: string, 
+    itemName: string, 
+    type: 'claim' | 'reserve' | 'contribution',
+    message: string
+  ) => {
+    if (!user) return;
+
+    try {
+      // 1. Create Firestore Notification
+      const notificationData = {
+        userId: ownerId,
+        registryId,
+        itemId,
+        itemName,
+        type,
+        message,
+        guestName: user.displayName || 'A guest',
+        guestEmail: user.email || '',
+        read: false,
+        createdAt: serverTimestamp()
+      };
+      await addDoc(collection(db, 'notifications'), notificationData);
+
+      // 2. Send Email via Backend
+      // Fetch owner's email first
+      const ownerDoc = await getDoc(doc(db, 'users', ownerId));
+      const ownerEmail = ownerDoc.exists() ? ownerDoc.data().email : null;
+
+      if (ownerEmail) {
+        const subject = `New ${type} on ${selectedRegistry?.babyName}'s Registry!`;
+        const html = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; rounded: 12px;">
+            <h2 style="color: #10b981;">Little Steps Registry Notification</h2>
+            <p>Hi there!</p>
+            <p><strong>${user.displayName || 'A guest'}</strong> has just ${type === 'claim' ? 'claimed' : type === 'reserve' ? 'reserved' : 'contributed to'} <strong>${itemName}</strong> on your registry.</p>
+            ${message ? `<p style="font-style: italic; padding: 10px; background: #f9fafb; border-radius: 8px;">"${message}"</p>` : ''}
+            <p>Check your registry for more details.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="font-size: 12px; color: #6b7280;">This is an automated message from Little Steps Registry.</p>
+          </div>
+        `;
+
+        await fetch('/api/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: ownerEmail, subject, html })
+        });
+      }
+    } catch (error) {
+      console.error('Error sending notification:', error);
+    }
+  };
+
+  const markNotificationRead = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    try {
+      const unread = notifications.filter(n => !n.read);
+      await Promise.all(unread.map(n => updateDoc(doc(db, 'notifications', n.id), { read: true })));
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
 
   // Connection Test
   useEffect(() => {
@@ -158,6 +273,39 @@ export default function App() {
     }
     testConnection();
   }, []);
+
+  // Notifications Listener
+  useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const newNotifications = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as AppNotification[];
+      
+      // Sort by createdAt desc
+      newNotifications.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+
+      setNotifications(newNotifications);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'notifications');
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   // Auth Listener
   useEffect(() => {
@@ -233,6 +381,41 @@ export default function App() {
     return () => unsubscribe();
   }, [selectedRegistry]);
 
+  // Handle Reservation Expiry
+  useEffect(() => {
+    if (items.length === 0) return;
+
+    const checkExpirations = async () => {
+      const now = Date.now();
+      const expiredItems = items.filter(item => 
+        item.status === 'reserved' && 
+        item.reservedUntil && 
+        (typeof item.reservedUntil === 'number' ? item.reservedUntil : item.reservedUntil.toMillis()) < now
+      );
+
+      for (const item of expiredItems) {
+        try {
+          const itemRef = doc(db, 'items', item.id);
+          await updateDoc(itemRef, {
+            status: 'available',
+            claimedBy: null,
+            claimedByEmail: null,
+            claimedAt: null,
+            reservedUntil: null,
+            guestMessage: null
+          });
+        } catch (error) {
+          console.error('Error expiring reservation:', error);
+        }
+      }
+    };
+
+    const interval = setInterval(checkExpirations, 60000); // Check every minute
+    checkExpirations(); // Initial check
+
+    return () => clearInterval(interval);
+  }, [items]);
+
   // Handle Deep Linking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -291,10 +474,31 @@ export default function App() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsLoggingIn(true);
+    setAuthError(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      setIsAuthModalOpen(false);
+    } catch (error: any) {
+      console.error('Google Sign-In failed:', error);
+      if (error.code === 'auth/popup-closed-by-user') {
+        setAuthError('Sign-in popup was closed before completing.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setAuthError('Google Sign-In is not enabled. Please enable it in the Firebase Console under Authentication > Sign-in method.');
+      } else {
+        setAuthError(error.message || 'Google Sign-In failed. Please try again.');
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
   const handleLogout = () => signOut(auth);
 
-  const fetchItemMetadata = async (url: string) => {
-    if (!url) return [];
+  const fetchItemMetadata = async (url: string): Promise<{ images: string[], title: string }> => {
+    if (!url) return { images: [], title: '' };
     setIsFetchingMetadata(true);
     setFetchMetadataError(null);
     try {
@@ -304,7 +508,7 @@ export default function App() {
         if (!data.images || data.images.length === 0) {
           setFetchMetadataError("No images found on this page. You can paste an image URL below.");
         }
-        return data.images || [];
+        return { images: data.images || [], title: data.title || '' };
       } else {
         setFetchMetadataError("Failed to fetch images from this URL. You can paste an image URL below.");
       }
@@ -314,11 +518,59 @@ export default function App() {
     } finally {
       setIsFetchingMetadata(false);
     }
-    return [];
+    return { images: [], title: '' };
   };
 
   const getCurrencySymbol = (code?: string) => {
     return CURRENCIES.find(c => c.code === code)?.symbol || '$';
+  };
+
+  const getSeason = (month: number, hemisphere: 'northern' | 'southern') => {
+    if (hemisphere === 'northern') {
+      if (month === 11 || month <= 1) return 'Winter';
+      if (month >= 2 && month <= 4) return 'Spring';
+      if (month >= 5 && month <= 7) return 'Summer';
+      return 'Autumn';
+    } else {
+      if (month === 11 || month <= 1) return 'Summer';
+      if (month >= 2 && month <= 4) return 'Autumn';
+      if (month >= 5 && month <= 7) return 'Winter';
+      return 'Spring';
+    }
+  };
+
+  const getSeasonsForPeriod = (startDate: Date, startMonthOffset: number, endMonthOffset: number, hemisphere: 'northern' | 'southern') => {
+    const seasons = new Set<string>();
+    for (let i = startMonthOffset; i <= endMonthOffset; i++) {
+      const d = new Date(startDate);
+      d.setMonth(d.getMonth() + i);
+      seasons.add(getSeason(d.getMonth(), hemisphere));
+    }
+    return Array.from(seasons).join(' / ');
+  };
+
+  const getMonthRange = (startDate: Date, startOffset: number, endOffset: number) => {
+    const start = new Date(startDate);
+    start.setMonth(start.getMonth() + startOffset);
+    const end = new Date(startDate);
+    end.setMonth(end.getMonth() + endOffset);
+
+    const format = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    if (startOffset === endOffset) return format(start);
+    return `${format(start)} - ${format(end)}`;
+  };
+
+  const generateSizeGuide = (dueDate: string, hemisphere: 'northern' | 'southern' = 'northern') => {
+    if (!dueDate) return [];
+    const start = new Date(dueDate);
+    return [
+      { size: 'Newborn', age: '0 months', months: getMonthRange(start, 0, 0), seasons: getSeasonsForPeriod(start, 0, 0, hemisphere) },
+      { size: '0-3 Months', age: '0-3 months', months: getMonthRange(start, 0, 2), seasons: getSeasonsForPeriod(start, 0, 2, hemisphere) },
+      { size: '3-6 Months', age: '3-6 months', months: getMonthRange(start, 3, 5), seasons: getSeasonsForPeriod(start, 3, 5, hemisphere) },
+      { size: '6-12 Months', age: '6-12 months', months: getMonthRange(start, 6, 11), seasons: getSeasonsForPeriod(start, 6, 11, hemisphere) },
+      { size: '12-18 Months', age: '12-18 months', months: getMonthRange(start, 12, 17), seasons: getSeasonsForPeriod(start, 12, 17, hemisphere) },
+      { size: '18-24 Months', age: '18-24 months', months: getMonthRange(start, 18, 23), seasons: getSeasonsForPeriod(start, 18, 23, hemisphere) },
+    ];
   };
 
   const createRegistry = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -330,6 +582,7 @@ export default function App() {
     const dueDate = formData.get('dueDate') as string;
     const description = formData.get('description') as string;
     const currency = formData.get('currency') as string;
+    const hemisphere = formData.get('hemisphere') as string || 'northern';
 
     try {
       await addDoc(collection(db, 'registries'), {
@@ -337,6 +590,7 @@ export default function App() {
         dueDate,
         description,
         currency,
+        hemisphere,
         ownerId: user.uid,
         createdAt: serverTimestamp()
       });
@@ -355,6 +609,7 @@ export default function App() {
     const dueDate = formData.get('dueDate') as string;
     const description = formData.get('description') as string;
     const currency = formData.get('currency') as string;
+    const hemisphere = formData.get('hemisphere') as string || 'northern';
 
     try {
       const registryRef = doc(db, 'registries', selectedRegistry.id);
@@ -362,14 +617,16 @@ export default function App() {
         babyName,
         dueDate,
         description,
-        currency
+        currency,
+        hemisphere
       });
       setSelectedRegistry({
         ...selectedRegistry,
         babyName,
         dueDate,
         description,
-        currency
+        currency,
+        hemisphere: hemisphere as 'northern' | 'southern'
       });
       setIsSettingsModalOpen(false);
     } catch (error) {
@@ -386,6 +643,7 @@ export default function App() {
     const price = (priceVal !== null && priceVal !== "") ? Number(priceVal) : null;
     const url = (formData.get('url') as string) || "";
     const description = (formData.get('description') as string) || "";
+    const isGroupGifting = formData.get('isGroupGifting') === 'on';
 
     setIsSubmittingItem(true);
     try {
@@ -400,7 +658,10 @@ export default function App() {
         category: formData.get('category') as string,
         status: 'available',
         addedBy: user.uid,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        isGroupGifting,
+        amountContributed: 0,
+        contributions: []
       });
       setIsAddItemModalOpen(false);
       setFetchedImages([]);
@@ -420,6 +681,7 @@ export default function App() {
     const priceVal = formData.get('price');
     const price = (priceVal !== null && priceVal !== "") ? Number(priceVal) : null;
     const url = formData.get('url') as string;
+    const isGroupGifting = formData.get('isGroupGifting') === 'on';
 
     setIsSubmittingItem(true);
     try {
@@ -432,6 +694,7 @@ export default function App() {
         url,
         imageUrl: selectedImageUrl || null,
         category: formData.get('category') as string,
+        isGroupGifting
       };
 
       if (!editingItem.createdAt) {
@@ -450,36 +713,124 @@ export default function App() {
     }
   };
 
-  const claimItem = async (item: RegistryItem) => {
+  const claimItem = (item: RegistryItem) => {
     if (!user) {
       alert('Please sign in to claim an item!');
       return;
     }
-
-    try {
-      const itemRef = doc(db, 'items', item.id);
-      await updateDoc(itemRef, {
-        status: 'claimed',
-        claimedBy: user.uid,
-        claimedAt: serverTimestamp()
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `items/${item.id}`);
-    }
+    setClaimingItem(item);
+    setClaimMode('claim');
+    setIsClaimModalOpen(true);
   };
 
-  const reserveItem = async (item: RegistryItem) => {
+  const reserveItem = (item: RegistryItem) => {
     if (!user) {
       alert('Please sign in to reserve an item!');
       return;
     }
+    setClaimingItem(item);
+    setClaimMode('reserve');
+    setIsClaimModalOpen(true);
+  };
 
+  const handleClaim = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!user || !claimingItem) return;
+
+    const formData = new FormData(e.currentTarget);
+    const message = formData.get('guestMessage') as string;
+
+    try {
+      const itemRef = doc(db, 'items', claimingItem.id);
+      const now = Date.now();
+      const expiry = Timestamp.fromMillis(now + (48 * 60 * 60 * 1000)); // 48 hours from now
+
+      await updateDoc(itemRef, {
+        status: claimMode === 'claim' ? 'claimed' : 'reserved',
+        claimedBy: user.uid,
+        claimedByEmail: user.email,
+        claimedAt: serverTimestamp(),
+        reservedUntil: claimMode === 'reserve' ? expiry : null,
+        guestMessage: message || null
+      });
+
+      // Send Notification
+      if (selectedRegistry) {
+        sendNotification(
+          selectedRegistry.ownerId,
+          selectedRegistry.id,
+          claimingItem.id,
+          claimingItem.name,
+          claimMode === 'claim' ? 'claim' : 'reserve',
+          message || ''
+        );
+      }
+
+      setIsClaimModalOpen(false);
+      setClaimingItem(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `items/${claimingItem.id}`);
+    }
+  };
+
+  const handleContribute = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!user || !contributingItem) return;
+
+    const formData = new FormData(e.currentTarget);
+    const amount = Number(formData.get('amount'));
+    const message = formData.get('message') as string;
+
+    if (isNaN(amount) || amount <= 0) return;
+
+    try {
+      const itemRef = doc(db, 'items', contributingItem.id);
+      const currentAmount = contributingItem.amountContributed || 0;
+      const newAmountContributed = currentAmount + amount;
+      const isFullyFunded = newAmountContributed >= (contributingItem.price || 0);
+
+      const contribution = {
+        uid: user.uid,
+        email: user.email || '',
+        userName: user.displayName || user.email?.split('@')[0] || 'Anonymous',
+        amount,
+        message: message || null,
+        createdAt: Date.now()
+      };
+
+      await updateDoc(itemRef, {
+        amountContributed: newAmountContributed,
+        contributions: arrayUnion(contribution),
+        status: isFullyFunded ? 'claimed' : 'available',
+        claimedBy: isFullyFunded ? user.uid : null,
+        claimedByEmail: isFullyFunded ? user.email : null,
+        claimedAt: isFullyFunded ? serverTimestamp() : null
+      });
+
+      // Send Notification
+      if (selectedRegistry) {
+        sendNotification(
+          selectedRegistry.ownerId,
+          selectedRegistry.id,
+          contributingItem.id,
+          contributingItem.name,
+          'contribution',
+          `Contributed ${selectedRegistry.currency || 'R'}${amount} towards this item. ${message ? `Message: ${message}` : ''}`
+        );
+      }
+
+      setIsContributeModalOpen(false);
+      setContributingItem(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `items/${contributingItem.id}`);
+    }
+  };
+
+  const toggleThankYouSent = async (item: RegistryItem) => {
     try {
       const itemRef = doc(db, 'items', item.id);
       await updateDoc(itemRef, {
-        status: 'reserved',
-        claimedBy: user.uid,
-        claimedAt: serverTimestamp()
+        thankYouSent: !item.thankYouSent
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `items/${item.id}`);
@@ -494,7 +845,10 @@ export default function App() {
       await updateDoc(itemRef, {
         status: 'available',
         claimedBy: null,
-        claimedAt: null
+        claimedByEmail: null,
+        claimedAt: null,
+        reservedUntil: null,
+        guestMessage: null
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `items/${item.id}`);
@@ -557,6 +911,93 @@ export default function App() {
                     <p className="text-sm font-medium text-stone-900">{user.displayName}</p>
                     <p className="text-xs text-stone-500">{user.email}</p>
                   </div>
+                  
+                  <div className="relative">
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
+                      className="p-2 relative"
+                    >
+                      <Bell className="w-5 h-5 text-stone-600" />
+                      {notifications.filter(n => !n.read).length > 0 && (
+                        <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 border-2 border-white rounded-full"></span>
+                      )}
+                    </Button>
+                    
+                    <AnimatePresence>
+                      {isNotificationsOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-stone-100 overflow-hidden z-50"
+                        >
+                          <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
+                            <h3 className="font-bold text-stone-900">Notifications</h3>
+                            {notifications.length > 0 && (
+                              <button 
+                                onClick={markAllNotificationsRead}
+                                className="text-xs text-emerald-600 font-medium hover:text-emerald-700"
+                              >
+                                Mark all as read
+                              </button>
+                            )}
+                          </div>
+                          <div className="max-h-96 overflow-y-auto">
+                            {notifications.length === 0 ? (
+                              <div className="p-8 text-center">
+                                <Bell className="w-8 h-8 text-stone-200 mx-auto mb-2" />
+                                <p className="text-sm text-stone-400 font-medium">No notifications yet</p>
+                              </div>
+                            ) : (
+                              notifications.map(notification => (
+                                <div 
+                                  key={notification.id}
+                                  className={cn(
+                                    "p-4 border-b border-stone-50 last:border-0 transition-colors cursor-pointer hover:bg-stone-50 text-left",
+                                    !notification.read && "bg-emerald-50/30"
+                                  )}
+                                  onClick={() => markNotificationRead(notification.id)}
+                                >
+                                  <div className="flex gap-3">
+                                    <div className={cn(
+                                      "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                                      notification.type === 'claim' ? "bg-emerald-100 text-emerald-600" :
+                                      notification.type === 'reserve' ? "bg-amber-100 text-amber-600" :
+                                      "bg-blue-100 text-blue-600"
+                                    )}>
+                                      {notification.type === 'claim' ? <Heart className="w-4 h-4" /> :
+                                       notification.type === 'reserve' ? <Clock className="w-4 h-4" /> :
+                                       <Gift className="w-4 h-4" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm text-stone-900 leading-tight">
+                                        <span className="font-bold">{notification.guestName}</span> {
+                                          notification.type === 'claim' ? 'claimed' :
+                                          notification.type === 'reserve' ? 'reserved' :
+                                          'contributed to'
+                                        } <span className="font-medium text-emerald-700">{notification.itemName}</span>
+                                      </p>
+                                      {notification.message && (
+                                        <p className="text-xs text-stone-500 mt-1 line-clamp-2 italic">"{notification.message}"</p>
+                                      )}
+                                      <p className="text-[10px] text-stone-400 mt-1">
+                                        {notification.createdAt?.toMillis ? new Date(notification.createdAt.toMillis()).toLocaleString() : 'Just now'}
+                                      </p>
+                                    </div>
+                                    {!notification.read && (
+                                      <div className="w-2 h-2 bg-emerald-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
                   {user.photoURL ? (
                     <img 
                       src={user.photoURL} 
@@ -584,6 +1025,27 @@ export default function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {showInstallPrompt && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-4">
+              <div className="bg-emerald-100 p-3 rounded-xl">
+                <Download className="w-6 h-6 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-emerald-900">Install Little Steps Registry</h3>
+                <p className="text-sm text-emerald-700">Add this app to your home screen for quick access and offline support.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button onClick={handleInstallClick} className="w-full sm:w-auto">Install Now</Button>
+              <Button variant="ghost" onClick={() => setShowInstallPrompt(false)} className="w-full sm:w-auto">Maybe Later</Button>
+            </div>
+          </motion.div>
+        )}
         {!selectedRegistry ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -671,13 +1133,23 @@ export default function App() {
                 <h2 className="text-3xl font-bold text-stone-900">{selectedRegistry.babyName}'s Registry</h2>
                 <p className="text-stone-500 mt-1">{selectedRegistry.description}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedRegistry.dueDate && (
+                  <Button variant="outline" onClick={() => setIsSizeGuideModalOpen(true)} title="Size Guide">
+                    <Ruler className="w-4 h-4 mr-2" />
+                    Size Guide
+                  </Button>
+                )}
                 <Button variant="outline" onClick={handleShare} title="Share Registry">
                   <Share2 className="w-4 h-4 mr-2" />
                   Share
                 </Button>
                 {user?.uid === selectedRegistry.ownerId && (
                   <>
+                    <Button variant="outline" onClick={() => setIsThankYouTrackerOpen(!isThankYouTrackerOpen)} title="Thank You Tracker">
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      {isThankYouTrackerOpen ? 'Back to Registry' : 'Thank You Tracker'}
+                    </Button>
                     <Button variant="outline" onClick={() => setIsSettingsModalOpen(true)} title="Registry Settings">
                       <Settings className="w-4 h-4 mr-2" />
                       Settings
@@ -694,193 +1166,371 @@ export default function App() {
               </div>
             </div>
 
-            {/* Filter and Sort */}
-            <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex flex-wrap gap-2">
-                {['All', 'Gear', 'Clothing', 'Feeding', 'Nursery', 'Toys', 'Other'].map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setFilterCategory(cat)}
-                    className={cn(
-                      "px-4 py-2 rounded-xl text-sm font-medium transition-all",
-                      filterCategory === cat 
-                        ? "bg-emerald-600 text-white shadow-md shadow-emerald-100" 
-                        : "bg-white text-stone-600 border border-stone-100 hover:bg-stone-50"
-                    )}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
+            {isThankYouTrackerOpen ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-3xl border border-stone-100 p-8 shadow-sm"
+              >
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-2xl font-bold text-stone-900">Thank You Note Tracker</h3>
+                    <p className="text-stone-500">Keep track of who you've thanked for their generous gifts.</p>
+                  </div>
+                  <div className="bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100">
+                    <span className="text-emerald-700 font-bold text-lg">
+                      {items.filter(i => i.status === 'claimed' && i.thankYouSent).length} / {items.filter(i => i.status === 'claimed').length}
+                    </span>
+                    <span className="text-emerald-600 text-sm ml-2 font-medium">Sent</span>
+                  </div>
+                </div>
 
-              <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
-                <span className="text-xs font-bold text-stone-400 uppercase tracking-wider ml-2 mr-1">Sort:</span>
-                <select 
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="bg-transparent text-sm font-medium text-stone-600 outline-none pr-2 py-1 cursor-pointer"
-                >
-                  <option value="date">Date Added</option>
-                  <option value="name">Name</option>
-                  <option value="price">Price</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Items Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {items
-                .filter(item => filterCategory === 'All' || item.category === filterCategory)
-                .sort((a, b) => {
-                  if (sortBy === 'name') return a.name.localeCompare(b.name);
-                  if (sortBy === 'price') return (a.price || 0) - (b.price || 0);
-                  // Default to date added (newest first)
-                  const dateA = a.createdAt?.seconds || 0;
-                  const dateB = b.createdAt?.seconds || 0;
-                  return dateB - dateA;
-                })
-                .map((item) => (
-                <motion.div key={item.id} layout>
-                  <Card className={cn(
-                    'h-full flex flex-col transition-all',
-                    item.status === 'claimed' ? 'opacity-75 grayscale-[0.5]' : 'hover:shadow-md'
-                  )}>
-                    {item.imageUrl && (
-                      <div className="aspect-square w-full overflow-hidden bg-stone-100 border-b border-stone-50">
-                        <img 
-                          src={item.imageUrl} 
-                          alt={item.name} 
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                    )}
-                    <div className="p-5 flex-1">
-                      <div className="flex justify-between items-start mb-3">
-                        <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
-                          {item.category || 'General'}
-                        </span>
-                        {user?.uid === selectedRegistry.ownerId && (
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                setEditingItem(item);
-                                setSelectedImageUrl(item.imageUrl || null);
-                                setFetchMetadataError(null);
-                                setIsEditItemModalOpen(true);
-                              }}
-                              className="text-stone-300 hover:text-emerald-600 transition-colors"
-                              title="Edit Item"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => deleteItem(item.id)}
-                              className="text-stone-300 hover:text-rose-500 transition-colors"
-                              title="Delete Item"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      <h4 className="font-bold text-stone-900 text-lg mb-1">{item.name}</h4>
-                      <p className="text-stone-500 text-sm mb-2 line-clamp-2">{item.description}</p>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="text-xs font-medium text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">
-                          Qty: {item.quantity || 1}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between mt-auto">
-                        {item.price != null ? (
-                          <span className="text-xl font-bold text-stone-900">
-                            {getCurrencySymbol(selectedRegistry.currency)}{item.price}
-                          </span>
-                        ) : (
-                          <div />
-                        )}
-                        {item.url && (
-                          <a 
-                            href={item.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-stone-400 hover:text-emerald-600 transition-colors"
-                          >
-                            <ExternalLink className="w-5 h-5" />
-                          </a>
-                        )}
-                      </div>
+                <div className="space-y-4">
+                  {items.filter(i => i.status === 'claimed').length === 0 ? (
+                    <div className="text-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
+                      <Clock className="w-10 h-10 text-stone-300 mx-auto mb-3" />
+                      <p className="text-stone-500 font-medium">No items have been claimed yet.</p>
                     </div>
-
-                    <div className="px-5 py-4 bg-stone-50 border-t border-stone-100">
-                      {item.status === 'claimed' ? (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold">
-                            <CheckCircle className="w-4 h-4" />
-                            <span>Claimed</span>
-                          </div>
-                          {user?.uid === item.claimedBy && (
-                            <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-xs h-8 px-2">
-                              Unclaim
-                            </Button>
+                  ) : (
+                    items
+                      .filter(i => i.status === 'claimed')
+                      .sort((a, b) => (a.thankYouSent === b.thankYouSent ? 0 : a.thankYouSent ? 1 : -1))
+                      .map((item) => (
+                        <div 
+                          key={item.id} 
+                          className={cn(
+                            "flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl border transition-all",
+                            item.thankYouSent 
+                              ? "bg-stone-50 border-stone-100 opacity-75" 
+                              : "bg-white border-stone-100 shadow-sm hover:shadow-md"
                           )}
-                        </div>
-                      ) : item.status === 'reserved' ? (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 text-amber-600 text-sm font-semibold">
-                            <Clock className="w-4 h-4" />
-                            <span>Reserved</span>
+                        >
+                          <div className="flex items-center gap-4 mb-4 sm:mb-0">
+                            {item.imageUrl ? (
+                              <img src={item.imageUrl} alt={item.name} className="w-16 h-16 rounded-xl object-cover bg-stone-100" />
+                            ) : (
+                              <div className="w-16 h-16 rounded-xl bg-stone-100 flex items-center justify-center">
+                                <Package className="w-8 h-8 text-stone-300" />
+                              </div>
+                            )}
+                            <div>
+                              <h4 className="font-bold text-stone-900">{item.name}</h4>
+                              <p className="text-sm text-stone-500">Claimed by: <span className="font-semibold text-stone-700">{item.claimedByEmail || 'Anonymous'}</span></p>
+                              {item.guestMessage && (
+                                <div className="mt-2 p-2 bg-emerald-50/50 rounded-lg border border-emerald-100/50 italic text-xs text-stone-600">
+                                  "{item.guestMessage}"
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          {user?.uid === item.claimedBy && (
-                            <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-xs h-8 px-2">
-                              Unreserve
-                            </Button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex gap-2">
                           <Button 
-                            className="flex-1" 
-                            variant="outline"
-                            onClick={() => claimItem(item)}
-                            disabled={!user}
-                            title={!user ? "Sign in to claim this item" : ""}
+                            variant={item.thankYouSent ? "outline" : "primary"}
+                            onClick={() => toggleThankYouSent(item)}
+                            className="sm:w-auto w-full"
                           >
-                            <Heart className="w-4 h-4 mr-2" />
-                            {user ? 'Claim' : 'Sign in'}
-                          </Button>
-                          <Button 
-                            className="flex-1" 
-                            variant="ghost"
-                            onClick={() => reserveItem(item)}
-                            disabled={!user}
-                            title={!user ? "Sign in to reserve this item" : ""}
-                          >
-                            <Clock className="w-4 h-4 mr-2" />
-                            {user ? 'Reserve' : 'Sign in'}
+                            {item.thankYouSent ? (
+                              <>
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                Sent
+                              </>
+                            ) : (
+                              'Mark as Sent'
+                            )}
                           </Button>
                         </div>
-                      )}
-                    </div>
-                  </Card>
-                </motion.div>
-              ))}
-            </div>
+                      ))
+                  )}
+                </div>
+              </motion.div>
+            ) : (
+              <>
+                {/* Filter and Sort */}
+                <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex flex-wrap gap-2">
+                    {['All', 'Gear', 'Clothing', 'Feeding', 'Nursery', 'Toys', 'Other'].map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setFilterCategory(cat)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-sm font-medium transition-all",
+                          filterCategory === cat 
+                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-100" 
+                            : "bg-white text-stone-600 border border-stone-100 hover:bg-stone-50"
+                        )}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
 
-            {items.length === 0 ? (
-              <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
-                <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
-                <p className="text-stone-400">No items added to this registry yet.</p>
-              </div>
-            ) : items.filter(item => filterCategory === 'All' || item.category === filterCategory).length === 0 && (
-              <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
-                <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
-                <p className="text-stone-400">No items found in the "{filterCategory}" category.</p>
-                <Button variant="ghost" onClick={() => setFilterCategory('All')} className="mt-4">
-                  Clear Filter
-                </Button>
-              </div>
+                  <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
+                    <span className="text-xs font-bold text-stone-400 uppercase tracking-wider ml-2 mr-1">Sort:</span>
+                    <select 
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="bg-transparent text-sm font-medium text-stone-600 outline-none pr-2 py-1 cursor-pointer"
+                    >
+                      <option value="date">Date Added</option>
+                      <option value="name">Name</option>
+                      <option value="price">Price</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Items Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {items
+                    .filter(item => filterCategory === 'All' || item.category === filterCategory)
+                    .sort((a, b) => {
+                      if (sortBy === 'name') return a.name.localeCompare(b.name);
+                      if (sortBy === 'price') return (a.price || 0) - (b.price || 0);
+                      // Default to date added (newest first)
+                      const dateA = a.createdAt?.seconds || 0;
+                      const dateB = b.createdAt?.seconds || 0;
+                      return dateB - dateA;
+                    })
+                    .map((item) => (
+                    <motion.div key={item.id} layout>
+                      <Card className={cn(
+                        'h-full flex flex-col transition-all',
+                        item.status === 'claimed' ? 'opacity-75 grayscale-[0.5]' : 'hover:shadow-md'
+                      )}>
+                        {item.imageUrl && (
+                          <div className="aspect-square w-full overflow-hidden bg-stone-100 border-b border-stone-50">
+                            <img 
+                              src={item.imageUrl} 
+                              alt={item.name} 
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        )}
+                        <div className="p-5 flex-1">
+                          <div className="flex justify-between items-start mb-3">
+                            <span className="text-xs font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">
+                              {item.category || 'General'}
+                            </span>
+                            {user?.uid === selectedRegistry.ownerId && (
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => {
+                                    setEditingItem(item);
+                                    setSelectedImageUrl(item.imageUrl || null);
+                                    setFetchMetadataError(null);
+                                    setIsEditItemModalOpen(true);
+                                  }}
+                                  className="text-stone-300 hover:text-emerald-600 transition-colors"
+                                  title="Edit Item"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => deleteItem(item.id)}
+                                  className="text-stone-300 hover:text-rose-500 transition-colors"
+                                  title="Delete Item"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <h4 className="font-bold text-stone-900 text-lg mb-1">{item.name}</h4>
+                          <p className="text-stone-500 text-sm mb-2 line-clamp-2">{item.description}</p>
+                          <div className="flex items-center gap-2 mb-4">
+                            <span className="text-xs font-medium text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">
+                              Qty: {item.quantity || 1}
+                            </span>
+                          </div>
+
+                          {item.isGroupGifting && item.price != null && (
+                            <div className="mb-4">
+                              <div className="flex justify-between text-xs text-stone-500 mb-1.5">
+                                <span>Group Gift Progress</span>
+                                <span>{Math.round(((item.amountContributed || 0) / item.price) * 100)}%</span>
+                              </div>
+                              <div className="w-full bg-stone-100 rounded-full h-2 overflow-hidden">
+                                <div 
+                                  className="bg-emerald-500 h-full transition-all duration-500" 
+                                  style={{ width: `${Math.min(100, ((item.amountContributed || 0) / item.price) * 100)}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[10px] text-stone-400 mt-1">
+                                <span>{getCurrencySymbol(selectedRegistry.currency)}{item.amountContributed || 0}</span>
+                                <span>Target: {getCurrencySymbol(selectedRegistry.currency)}{item.price}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {user?.uid === selectedRegistry.ownerId && item.isGroupGifting && item.contributions && item.contributions.length > 0 && (
+                            <div className="mb-4 pt-4 border-t border-stone-100">
+                              <h5 className="text-[10px] font-bold text-stone-400 mb-2 uppercase tracking-wider">Contributions</h5>
+                              <div className="space-y-2 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                                {item.contributions.map((c, idx) => (
+                                  <div key={idx} className="text-[11px] bg-stone-50 p-2 rounded-lg border border-stone-100">
+                                    <div className="flex justify-between font-medium text-stone-800 mb-0.5">
+                                      <span>{c.userName}</span>
+                                      <span className="text-emerald-600">{getCurrencySymbol(selectedRegistry.currency)}{c.amount}</span>
+                                    </div>
+                                    {c.message && <p className="text-stone-500 italic">"{c.message}"</p>}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          <div className="flex items-center justify-between mt-auto">
+                            {item.price != null ? (
+                              <span className="text-xl font-bold text-stone-900">
+                                {getCurrencySymbol(selectedRegistry.currency)}{item.price}
+                              </span>
+                            ) : (
+                              <div />
+                            )}
+                            {item.url && (
+                              <a 
+                                href={item.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                              >
+                                <span>View Item</span>
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="px-5 py-4 bg-stone-50 border-t border-stone-100">
+                          {item.isGroupGifting && item.status === 'available' ? (
+                            <div className="flex gap-2">
+                              <Button 
+                                className="flex-1" 
+                                variant="primary"
+                                onClick={() => {
+                                  setContributingItem(item);
+                                  setIsContributeModalOpen(true);
+                                }}
+                                disabled={!user}
+                                title={!user ? "Sign in to contribute" : ""}
+                              >
+                                <Gift className="w-4 h-4 mr-2" />
+                                {user ? 'Contribute' : 'Sign in'}
+                              </Button>
+                              <Button 
+                                className="flex-1" 
+                                variant="outline"
+                                onClick={() => claimItem(item)}
+                                disabled={!user}
+                                title={!user ? "Sign in to claim full item" : ""}
+                              >
+                                <Heart className="w-4 h-4 mr-2" />
+                                {user ? 'Claim Full' : 'Sign in'}
+                              </Button>
+                            </div>
+                          ) : item.status === 'claimed' ? (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold">
+                                  <CheckCircle className="w-4 h-4" />
+                                  <span>Claimed</span>
+                                </div>
+                                {user?.uid === item.claimedBy && (
+                                  <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-xs h-8 px-2">
+                                    Unclaim
+                                  </Button>
+                                )}
+                              </div>
+                              {item.guestMessage && (
+                                <div className="p-3 bg-white rounded-xl border border-stone-100 italic text-xs text-stone-600 shadow-sm">
+                                  "{item.guestMessage}"
+                                </div>
+                              )}
+                              {user?.uid === selectedRegistry.ownerId && (
+                                <Button 
+                                  variant={item.thankYouSent ? "outline" : "primary"}
+                                  onClick={() => toggleThankYouSent(item)}
+                                  className="w-full text-xs h-9"
+                                >
+                                  {item.thankYouSent ? (
+                                    <>
+                                      <CheckCircle className="w-3 h-3 mr-1.5" />
+                                      Thank You Sent
+                                    </>
+                                  ) : (
+                                    'Mark Thank You Sent'
+                                  )}
+                                </Button>
+                              )}
+                            </div>
+                          ) : item.status === 'reserved' ? (
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-amber-600 text-sm font-semibold">
+                                  <Clock className="w-4 h-4" />
+                                  <span>Reserved</span>
+                                </div>
+                                {item.reservedUntil && (
+                                  <div className="text-[10px] text-amber-500 font-medium bg-amber-50 px-2 py-0.5 rounded-full">
+                                    Expires in {Math.max(0, Math.ceil(((typeof item.reservedUntil === 'number' ? item.reservedUntil : item.reservedUntil.toMillis()) - Date.now()) / (60 * 60 * 1000)))}h
+                                  </div>
+                                )}
+                                {user?.uid === item.claimedBy && (
+                                  <Button variant="ghost" onClick={() => unclaimItem(item)} className="text-xs h-8 px-2">
+                                    Unreserve
+                                  </Button>
+                                )}
+                              </div>
+                              {item.guestMessage && (
+                                <div className="p-3 bg-white rounded-xl border border-stone-100 italic text-xs text-stone-600 shadow-sm">
+                                  "{item.guestMessage}"
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex gap-2">
+                              <Button 
+                                className="flex-1" 
+                                variant="outline"
+                                onClick={() => claimItem(item)}
+                                disabled={!user}
+                                title={!user ? "Sign in to claim this item" : ""}
+                              >
+                                <Heart className="w-4 h-4 mr-2" />
+                                {user ? 'Claim' : 'Sign in'}
+                              </Button>
+                              <Button 
+                                className="flex-1" 
+                                variant="ghost"
+                                onClick={() => reserveItem(item)}
+                                disabled={!user}
+                                title={!user ? "Sign in to reserve this item" : ""}
+                              >
+                                <Clock className="w-4 h-4 mr-2" />
+                                {user ? 'Reserve' : 'Sign in'}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    </motion.div>
+                  ))}
+                </div>
+
+                {items.length === 0 ? (
+                  <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
+                    <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
+                    <p className="text-stone-400">No items added to this registry yet.</p>
+                  </div>
+                ) : items.filter(item => filterCategory === 'All' || item.category === filterCategory).length === 0 && (
+                  <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
+                    <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
+                    <p className="text-stone-400">No items found in the "{filterCategory}" category.</p>
+                    <Button variant="ghost" onClick={() => setFilterCategory('All')} className="mt-4">
+                      Clear Filter
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </motion.div>
         )}
@@ -936,6 +1586,43 @@ export default function App() {
           <Button type="submit" className="w-full py-3" disabled={isLoggingIn}>
             {isLoggingIn ? 'Please wait...' : (authMode === 'login' ? 'Sign In' : 'Create Account')}
           </Button>
+          
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-stone-200"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-stone-500">Or continue with</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={isLoggingIn}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 border border-stone-300 rounded-xl bg-white text-stone-700 font-medium hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                fill="#4285F4"
+              />
+              <path
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                fill="#34A853"
+              />
+              <path
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                fill="#FBBC05"
+              />
+              <path
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                fill="#EA4335"
+              />
+            </svg>
+            Google
+          </button>
+
           <div className="text-center mt-4">
             <button 
               type="button" 
@@ -983,17 +1670,30 @@ export default function App() {
               placeholder="A little bit about your registry..."
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
-            <select 
-              name="currency"
-              defaultValue="USD"
-              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
-            >
-              {CURRENCIES.map(c => (
-                <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
+              <select 
+                name="currency"
+                defaultValue="USD"
+                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              >
+                {CURRENCIES.map(c => (
+                  <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Location</label>
+              <select 
+                name="hemisphere"
+                defaultValue="southern"
+                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              >
+                <option value="northern">Northern Hemisphere</option>
+                <option value="southern">Southern Hemisphere</option>
+              </select>
+            </div>
           </div>
           <Button type="submit" className="w-full py-3">Create Registry</Button>
         </form>
@@ -1013,6 +1713,7 @@ export default function App() {
             <label className="block text-sm font-medium text-stone-700 mb-1">Item Name</label>
             <input 
               name="name" 
+              id="addItemName"
               required 
               className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
               placeholder="e.g. Baby Stroller"
@@ -1054,6 +1755,17 @@ export default function App() {
                 <option value="Other">Other</option>
               </select>
             </div>
+          <div className="flex items-center gap-2">
+            <input 
+              name="isGroupGifting" 
+              type="checkbox"
+              id="isGroupGifting"
+              className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <label htmlFor="isGroupGifting" className="text-sm font-medium text-stone-700">
+              Enable Group Gifting (for big items)
+            </label>
+          </div>
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Link (URL)</label>
             <div className="flex gap-2">
@@ -1063,6 +1775,19 @@ export default function App() {
                 type="url"
                 className="flex-1 rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
                 placeholder="https://..."
+                onBlur={async (e) => {
+                  if (e.target.value) {
+                    const nameInput = document.getElementById('addItemName') as HTMLInputElement;
+                    if (!nameInput?.value) {
+                      const { images, title } = await fetchItemMetadata(e.target.value);
+                      setFetchedImages(images);
+                      if (images.length > 0) setSelectedImageUrl(images[0]);
+                      if (nameInput && title && !nameInput.value) {
+                        nameInput.value = title;
+                      }
+                    }
+                  }
+                }}
               />
               <Button 
                 type="button" 
@@ -1070,9 +1795,14 @@ export default function App() {
                 onClick={async () => {
                   const urlInput = document.getElementById('addItemUrl') as HTMLInputElement;
                   if (urlInput?.value) {
-                    const images = await fetchItemMetadata(urlInput.value);
+                    const { images, title } = await fetchItemMetadata(urlInput.value);
                     setFetchedImages(images);
                     if (images.length > 0) setSelectedImageUrl(images[0]);
+                    
+                    const nameInput = document.getElementById('addItemName') as HTMLInputElement;
+                    if (nameInput && title && !nameInput.value) {
+                      nameInput.value = title;
+                    }
                   }
                 }}
                 disabled={isFetchingMetadata}
@@ -1171,6 +1901,7 @@ export default function App() {
               <label className="block text-sm font-medium text-stone-700 mb-1">Item Name</label>
               <input 
                 name="name" 
+                id="editItemName"
                 required 
                 defaultValue={editingItem.name}
                 className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
@@ -1215,6 +1946,18 @@ export default function App() {
                   <option value="Other">Other</option>
                 </select>
               </div>
+            <div className="flex items-center gap-2">
+              <input 
+                name="isGroupGifting" 
+                type="checkbox"
+                id="editIsGroupGifting"
+                defaultChecked={editingItem.isGroupGifting}
+                className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <label htmlFor="editIsGroupGifting" className="text-sm font-medium text-stone-700">
+                Enable Group Gifting (for big items)
+              </label>
+            </div>
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">Link (URL)</label>
               <div className="flex gap-2">
@@ -1225,6 +1968,19 @@ export default function App() {
                   defaultValue={editingItem.url}
                   className="flex-1 rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
                   placeholder="https://..."
+                  onBlur={async (e) => {
+                    if (e.target.value) {
+                      const nameInput = document.getElementById('editItemName') as HTMLInputElement;
+                      if (!nameInput?.value) {
+                        const { images, title } = await fetchItemMetadata(e.target.value);
+                        setFetchedImages(images);
+                        if (images.length > 0) setSelectedImageUrl(images[0]);
+                        if (nameInput && title && !nameInput.value) {
+                          nameInput.value = title;
+                        }
+                      }
+                    }
+                  }}
                 />
                 <Button 
                   type="button" 
@@ -1232,9 +1988,14 @@ export default function App() {
                   onClick={async () => {
                     const urlInput = document.getElementById('editItemUrl') as HTMLInputElement;
                     if (urlInput?.value) {
-                      const images = await fetchItemMetadata(urlInput.value);
+                      const { images, title } = await fetchItemMetadata(urlInput.value);
                       setFetchedImages(images);
                       if (images.length > 0) setSelectedImageUrl(images[0]);
+                      
+                      const nameInput = document.getElementById('editItemName') as HTMLInputElement;
+                      if (nameInput && title && !nameInput.value) {
+                        nameInput.value = title;
+                      }
                     }
                   }}
                   disabled={isFetchingMetadata}
@@ -1342,6 +2103,46 @@ export default function App() {
       </Modal>
 
       <Modal 
+        isOpen={isSizeGuideModalOpen} 
+        onClose={() => setIsSizeGuideModalOpen(false)} 
+        title="Baby Clothing Size Guide"
+      >
+        {selectedRegistry && selectedRegistry.dueDate && (
+          <div className="space-y-4">
+            <p className="text-sm text-stone-600 mb-4">
+              Based on the expected due date ({new Date(selectedRegistry.dueDate).toLocaleDateString()}) and location ({selectedRegistry.hemisphere === 'northern' ? 'Northern' : 'Southern'} Hemisphere), here is a guide for what size clothes the baby will likely wear in each season.
+            </p>
+            <div className="overflow-hidden rounded-xl border border-stone-200">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-stone-50 text-stone-700 font-medium border-b border-stone-200">
+                  <tr>
+                    <th className="px-4 py-3">Size</th>
+                    <th className="px-4 py-3">Age</th>
+                    <th className="px-4 py-3">Months</th>
+                    <th className="px-4 py-3">Season</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-200 bg-white">
+                  {generateSizeGuide(selectedRegistry.dueDate, selectedRegistry.hemisphere).map((guide, idx) => (
+                    <tr key={idx} className="hover:bg-stone-50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-stone-900">{guide.size}</td>
+                      <td className="px-4 py-3 text-stone-600">{guide.age}</td>
+                      <td className="px-4 py-3 text-stone-600">{guide.months}</td>
+                      <td className="px-4 py-3 text-stone-600">
+                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-stone-100 text-stone-700 text-xs font-medium">
+                          {guide.seasons}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal 
         isOpen={isSettingsModalOpen} 
         onClose={() => setIsSettingsModalOpen(false)} 
         title="Registry Settings"
@@ -1377,19 +2178,138 @@ export default function App() {
                 placeholder="A little bit about your registry..."
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
-              <select 
-                name="currency"
-                defaultValue={selectedRegistry.currency || 'USD'}
-                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
-              >
-                {CURRENCIES.map(c => (
-                  <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
-                ))}
-              </select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
+                <select 
+                  name="currency"
+                  defaultValue={selectedRegistry.currency || 'USD'}
+                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                >
+                  {CURRENCIES.map(c => (
+                    <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Location</label>
+                <select 
+                  name="hemisphere"
+                  defaultValue={selectedRegistry.hemisphere || 'southern'}
+                  className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                >
+                  <option value="northern">Northern Hemisphere</option>
+                  <option value="southern">Southern Hemisphere</option>
+                </select>
+              </div>
             </div>
             <Button type="submit" className="w-full py-3">Save Settings</Button>
+          </form>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isClaimModalOpen}
+        onClose={() => setIsClaimModalOpen(false)}
+        title={claimMode === 'claim' ? 'Claim Item' : 'Reserve Item'}
+      >
+        <form onSubmit={handleClaim} className="space-y-4">
+          <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-4">
+            {claimingItem?.imageUrl ? (
+              <img src={claimingItem.imageUrl} alt={claimingItem.name} className="w-16 h-16 rounded-xl object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-xl bg-stone-200 flex items-center justify-center">
+                <Package className="w-8 h-8 text-stone-400" />
+              </div>
+            )}
+            <div>
+              <h4 className="font-bold text-stone-900">{claimingItem?.name}</h4>
+              <p className="text-sm text-stone-500 line-clamp-1">{claimingItem?.description}</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">
+              Leave a message for the parents (optional)
+            </label>
+            <textarea
+              name="guestMessage"
+              rows={3}
+              className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+              placeholder="Congratulations! We're so excited for you..."
+            />
+          </div>
+
+          <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 mt-0.5" />
+            <p className="text-xs text-amber-800 leading-relaxed">
+              {claimMode === 'claim' 
+                ? "By claiming this item, you're letting others know you've already purchased it or intend to do so immediately."
+                : "Reserving an item holds it for 48 hours, giving you time to complete your purchase."}
+            </p>
+          </div>
+
+          <Button type="submit" className="w-full py-3">
+            {claimMode === 'claim' ? 'Confirm Claim' : 'Confirm Reservation'}
+          </Button>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={isContributeModalOpen}
+        onClose={() => setIsContributeModalOpen(false)}
+        title="Contribute to Group Gift"
+      >
+        {contributingItem && (
+          <form onSubmit={handleContribute} className="space-y-4">
+            <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-4">
+              {contributingItem.imageUrl ? (
+                <img src={contributingItem.imageUrl} alt={contributingItem.name} className="w-16 h-16 rounded-xl object-cover" />
+              ) : (
+                <div className="w-16 h-16 rounded-xl bg-stone-200 flex items-center justify-center">
+                  <Package className="w-8 h-8 text-stone-400" />
+                </div>
+              )}
+              <div className="flex-1">
+                <h4 className="font-bold text-stone-900">{contributingItem.name}</h4>
+                <div className="flex justify-between text-xs text-stone-500 mt-1">
+                  <span>Target: {getCurrencySymbol(selectedRegistry?.currency)}{contributingItem.price}</span>
+                  <span>Remaining: {getCurrencySymbol(selectedRegistry?.currency)}{(contributingItem.price || 0) - (contributingItem.amountContributed || 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Contribution Amount ({getCurrencySymbol(selectedRegistry?.currency)})
+              </label>
+              <input
+                name="amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={(contributingItem.price || 0) - (contributingItem.amountContributed || 0)}
+                required
+                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                placeholder="0.00"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Leave a message (optional)
+              </label>
+              <textarea
+                name="message"
+                rows={3}
+                className="w-full rounded-xl border-stone-200 focus:border-emerald-500 focus:ring-emerald-500"
+                placeholder="We're so happy to contribute to this gift!..."
+              />
+            </div>
+
+            <Button type="submit" className="w-full py-3">
+              Confirm Contribution
+            </Button>
           </form>
         )}
       </Modal>

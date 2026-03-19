@@ -75,13 +75,15 @@ service cloud.firestore {
     }
 
     function isValidRegistry(data) {
-      return hasOnlyAllowedFields(['babyName', 'dueDate', 'description', 'ownerId', 'createdAt', 'currency']) &&
+      return hasOnlyAllowedFields(['babyName', 'dueDate', 'description', 'ownerId', 'createdAt', 'currency', 'hemisphere']) &&
              data.babyName is string && data.babyName.size() > 0 && data.babyName.size() < 100 &&
-             data.ownerId is string && data.ownerId == request.auth.uid;
+             data.ownerId is string && data.ownerId == request.auth.uid &&
+             (!('currency' in data) || data.currency == null || data.currency is string) &&
+             (!('hemisphere' in data) || data.hemisphere == null || data.hemisphere in ['northern', 'southern']);
     }
 
     function isValidItem(data) {
-      return hasOnlyAllowedFields(['registryId', 'name', 'description', 'price', 'imageUrl', 'url', 'category', 'quantity', 'status', 'claimedBy', 'claimedAt', 'addedBy', 'createdAt']) &&
+      return hasOnlyAllowedFields(['registryId', 'name', 'description', 'price', 'imageUrl', 'url', 'category', 'quantity', 'status', 'claimedBy', 'claimedByEmail', 'claimedAt', 'addedBy', 'createdAt', 'guestMessage', 'thankYouSent', 'isGroupGifting', 'amountContributed', 'contributions', 'reservedUntil']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.registryId is string &&
              (!('url' in data) || data.url == null || data.url is string) &&
@@ -91,10 +93,25 @@ service cloud.firestore {
              (!('price' in data) || data.price == null || data.price is number) &&
              (!('imageUrl' in data) || data.imageUrl == null || data.imageUrl is string) &&
              (!('claimedBy' in data) || data.claimedBy == null || data.claimedBy is string) &&
+             (!('claimedByEmail' in data) || data.claimedByEmail == null || data.claimedByEmail is string) &&
              (!('claimedAt' in data) || data.claimedAt == null || data.claimedAt is timestamp) &&
              (!('createdAt' in data) || data.createdAt == null || data.createdAt is timestamp) &&
+             (!('guestMessage' in data) || data.guestMessage == null || data.guestMessage is string) &&
+             (!('thankYouSent' in data) || data.thankYouSent == null || data.thankYouSent is bool) &&
+             (!('isGroupGifting' in data) || data.isGroupGifting == null || data.isGroupGifting is bool) &&
+             (!('amountContributed' in data) || data.amountContributed == null || data.amountContributed is number) &&
+             (!('contributions' in data) || data.contributions == null || data.contributions is list) &&
+             (!('reservedUntil' in data) || data.reservedUntil == null || data.reservedUntil is timestamp) &&
              data.quantity is int && data.quantity > 0 &&
              data.status in ['available', 'claimed', 'reserved'];
+    }
+
+    function isValidNotification(data) {
+      return hasOnlyAllowedFields(['userId', 'registryId', 'itemId', 'itemName', 'type', 'message', 'guestName', 'guestEmail', 'read', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.type in ['claim', 'reserve', 'contribution'] &&
+             data.message is string && data.message.size() > 0 &&
+             data.createdAt is timestamp;
     }
 
     // ===============================================================
@@ -109,6 +126,14 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isOwner(uid) && isValidUser(request.resource.data);
       allow update: if isOwner(uid) && isValidUser(request.resource.data);
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidNotification(request.resource.data);
+      allow update: if isAuthenticated() && (resource != null && resource.data.userId == request.auth.uid) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isAuthenticated() && (resource != null && resource.data.userId == request.auth.uid);
     }
 
     match /registries/{registryId} {
@@ -126,11 +151,17 @@ service cloud.firestore {
         // Owner can update anything
         (exists(/databases/$(database)/documents/registries/$(resource.data.registryId)) && 
          get(/databases/$(database)/documents/registries/$(resource.data.registryId)).data.ownerId == request.auth.uid) ||
-        // Guests can only update status and claimedBy/claimedAt
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedAt']) &&
-         request.resource.data.status in ['claimed', 'reserved'] && resource.data.status == 'available') ||
+        // Guests can only update status, claimedBy, claimedByEmail, claimedAt, and guestMessage
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedByEmail', 'claimedAt', 'guestMessage']) &&
+         request.resource.data.status in ['claimed', 'reserved'] && resource.data.status == 'available' && request.resource.data.claimedBy == request.auth.uid && request.resource.data.claimedByEmail == request.auth.token.email) ||
+        // Guests can contribute to group gifting
+        (resource.data.isGroupGifting == true && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['amountContributed', 'contributions', 'status', 'claimedBy', 'claimedByEmail', 'claimedAt']) &&
+         request.resource.data.amountContributed > (resource.data.amountContributed || 0) &&
+         request.resource.data.amountContributed <= resource.data.price &&
+         (request.resource.data.amountContributed == resource.data.price ? request.resource.data.status == 'claimed' : request.resource.data.status == resource.data.status)) ||
         // Guests can unclaim/unreserve if they are the ones who claimed/reserved it
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedAt']) &&
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedByEmail', 'claimedAt', 'guestMessage']) &&
          request.resource.data.status == 'available' && resource.data.status in ['claimed', 'reserved'] && resource.data.claimedBy == request.auth.uid)
       ) && isValidItem(request.resource.data);
       allow delete: if isAuthenticated() && (
