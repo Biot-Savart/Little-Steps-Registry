@@ -14,6 +14,8 @@ import {
   getDocs,
   getDocFromServer,
   arrayUnion,
+  arrayRemove,
+  or,
   Timestamp
 } from 'firebase/firestore';
 import { 
@@ -53,7 +55,9 @@ import {
   Download,
   Bell,
   LayoutGrid,
-  List
+  List,
+  Users,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -143,6 +147,8 @@ export default function App() {
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [isContributeModalOpen, setIsContributeModalOpen] = useState(false);
   const [isThankYouTrackerOpen, setIsThankYouTrackerOpen] = useState(false);
+  const [isManageOwnersModalOpen, setIsManageOwnersModalOpen] = useState(false);
+  const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [claimingItem, setClaimingItem] = useState<RegistryItem | null>(null);
   const [contributingItem, setContributingItem] = useState<RegistryItem | null>(null);
   const [claimMode, setClaimMode] = useState<'claim' | 'reserve'>('claim');
@@ -153,6 +159,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isSubmittingItem, setIsSubmittingItem] = useState(false);
+
+  const isOwner = selectedRegistry && user && (user.uid === selectedRegistry.ownerId || (user.email && selectedRegistry.coOwnerEmails?.includes(user.email.toLowerCase())));
   const [fetchedImages, setFetchedImages] = useState<string[]>([]);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
@@ -358,7 +366,13 @@ export default function App() {
         return;
       }
 
-      const q = query(collection(db, 'registries'), where('ownerId', '==', user.uid));
+      const q = query(
+        collection(db, 'registries'), 
+        or(
+          where('ownerId', '==', user.uid),
+          where('coOwnerEmails', 'array-contains', user.email.toLowerCase())
+        )
+      );
       const unsubscribe = onSnapshot(q, (snapshot) => {
       const registryData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Registry));
       setRegistries(registryData);
@@ -635,6 +649,49 @@ export default function App() {
         hemisphere: hemisphere as 'northern' | 'southern'
       });
       setIsSettingsModalOpen(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `registries/${selectedRegistry.id}`);
+    }
+  };
+
+  const handleAddOwner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRegistry || !newOwnerEmail.trim()) return;
+
+    try {
+      const registryRef = doc(db, 'registries', selectedRegistry.id);
+      await updateDoc(registryRef, {
+        coOwnerEmails: arrayUnion(newOwnerEmail.trim().toLowerCase())
+      });
+      
+      // Also update local state
+      const updatedCoOwners = [...(selectedRegistry.coOwnerEmails || []), newOwnerEmail.trim().toLowerCase()];
+      setSelectedRegistry({
+        ...selectedRegistry,
+        coOwnerEmails: updatedCoOwners
+      });
+      
+      setNewOwnerEmail('');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `registries/${selectedRegistry.id}`);
+    }
+  };
+
+  const handleRemoveOwner = async (emailToRemove: string) => {
+    if (!selectedRegistry) return;
+    
+    try {
+      const registryRef = doc(db, 'registries', selectedRegistry.id);
+      await updateDoc(registryRef, {
+        coOwnerEmails: arrayRemove(emailToRemove)
+      });
+      
+      // Also update local state
+      const updatedCoOwners = (selectedRegistry.coOwnerEmails || []).filter(email => email !== emailToRemove);
+      setSelectedRegistry({
+        ...selectedRegistry,
+        coOwnerEmails: updatedCoOwners
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `registries/${selectedRegistry.id}`);
     }
@@ -1149,7 +1206,7 @@ export default function App() {
                         <div className="bg-stone-50 p-3 rounded-2xl">
                           <Gift className="w-6 h-6 text-stone-400" />
                         </div>
-                        {user?.uid === registry.ownerId && (
+                        {(user?.uid === registry.ownerId || (user?.email && registry.coOwnerEmails?.includes(user.email.toLowerCase()))) && (
                           <span className="bg-emerald-50 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-lg">
                             Your Registry
                           </span>
@@ -1209,11 +1266,15 @@ export default function App() {
                   <Share2 className="w-4 h-4 mr-2" />
                   Share
                 </Button>
-                {user?.uid === selectedRegistry.ownerId && (
+                {isOwner && (
                   <>
                     <Button variant="outline" onClick={() => setIsThankYouTrackerOpen(!isThankYouTrackerOpen)} title="Thank You Tracker">
                       <CheckCircle className="w-4 h-4 mr-2" />
                       {isThankYouTrackerOpen ? 'Back to Registry' : 'Thank You Tracker'}
+                    </Button>
+                    <Button variant="outline" onClick={() => setIsManageOwnersModalOpen(true)} title="Manage Owners">
+                      <Users className="w-4 h-4 mr-2" />
+                      Owners
                     </Button>
                     <Button variant="outline" onClick={() => setIsSettingsModalOpen(true)} title="Registry Settings">
                       <Settings className="w-4 h-4 mr-2" />
@@ -1358,7 +1419,7 @@ export default function App() {
                       </select>
                     </div>
 
-                    {user?.uid === selectedRegistry.ownerId && (
+                    {isOwner && (
                       <Button 
                         className="rounded-xl px-4 py-2 text-xs h-auto"
                         onClick={() => {
@@ -1419,7 +1480,7 @@ export default function App() {
                             <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">
                               {item.category || 'General'}
                             </span>
-                            {user?.uid === selectedRegistry.ownerId && (
+                            {isOwner && (
                               <div className="flex items-center gap-2">
                                 <button 
                                   onClick={() => {
@@ -1490,7 +1551,7 @@ export default function App() {
                             </div>
                           )}
 
-                          {user?.uid === selectedRegistry.ownerId && item.claims && item.claims.length > 0 && (
+                          {isOwner && item.claims && item.claims.length > 0 && (
                             <div className={cn(
                               "pt-2 border-t border-stone-100",
                               viewMode === 'grid' ? "mb-2" : "mb-1"
@@ -1527,7 +1588,7 @@ export default function App() {
                             </div>
                           )}
 
-                          {user?.uid === selectedRegistry.ownerId && item.isGroupGifting && item.contributions && item.contributions.length > 0 && (
+                          {isOwner && item.isGroupGifting && item.contributions && item.contributions.length > 0 && (
                             <div className={cn(
                               "pt-2 border-t border-stone-100",
                               viewMode === 'grid' ? "mb-2" : "mb-1"
@@ -1644,7 +1705,7 @@ export default function App() {
                                     </Button>
                                   </div>
                                   
-                                  {user?.uid === selectedRegistry.ownerId && isClaimed && (
+                                  {isOwner && isClaimed && (
                                     <Button 
                                       variant={item.thankYouSent ? "outline" : "primary"}
                                       onClick={() => toggleThankYouSent(item)}
@@ -2416,6 +2477,72 @@ export default function App() {
             </div>
             <Button type="submit" className="w-full py-3">Save Settings</Button>
           </form>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isManageOwnersModalOpen}
+        onClose={() => setIsManageOwnersModalOpen(false)}
+        title="Manage Registry Owners"
+      >
+        {selectedRegistry && (
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-sm font-medium text-stone-900 mb-3">Current Owners</h4>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-3 bg-stone-50 rounded-xl border border-stone-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-medium text-sm">
+                      {selectedRegistry.ownerId.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-stone-900">Primary Owner</p>
+                      <p className="text-xs text-stone-500">Creator of this registry</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Primary</span>
+                </div>
+                
+                {selectedRegistry.coOwnerEmails?.map((email) => (
+                  <div key={email} className="flex items-center justify-between p-3 bg-white rounded-xl border border-stone-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-600 font-medium text-sm">
+                        {email.charAt(0).toUpperCase()}
+                      </div>
+                      <p className="text-sm font-medium text-stone-900">{email}</p>
+                    </div>
+                    <button 
+                      onClick={() => handleRemoveOwner(email)}
+                      className="text-stone-400 hover:text-red-500 transition-colors p-1"
+                      title="Remove owner"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-stone-100">
+              <h4 className="text-sm font-medium text-stone-900 mb-3">Add Co-Owner</h4>
+              <form onSubmit={handleAddOwner} className="flex gap-2">
+                <input
+                  type="email"
+                  required
+                  value={newOwnerEmail}
+                  onChange={(e) => setNewOwnerEmail(e.target.value)}
+                  placeholder="Enter email address"
+                  className="flex-1 rounded-xl border border-stone-200 px-4 py-2 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-sm"
+                />
+                <Button type="submit" disabled={!newOwnerEmail.trim()}>
+                  Add
+                </Button>
+              </form>
+              <p className="text-xs text-stone-500 mt-2">
+                Co-owners can add, edit, and manage items, as well as view the thank you tracker.
+              </p>
+            </div>
+          </div>
         )}
       </Modal>
 

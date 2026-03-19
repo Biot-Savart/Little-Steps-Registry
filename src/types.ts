@@ -12,6 +12,7 @@ export interface Registry {
   dueDate: string;
   description: string;
   ownerId: string;
+  coOwnerEmails?: string[];
   createdAt: any;
   currency?: string;
   hemisphere?: 'northern' | 'southern';

@@ -24,7 +24,8 @@
         "ownerId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "currency": { "type": "string" },
-        "hemisphere": { "type": "string", "enum": ["northern", "southern"] }
+        "hemisphere": { "type": "string", "enum": ["northern", "southern"] },
+        "coOwnerEmails": { "type": "array", "items": { "type": "string", "format": "email" } }
       },
       "required": ["babyName", "ownerId"]
     },
