@@ -75,16 +75,17 @@ service cloud.firestore {
     }
 
     function isValidRegistry(data) {
-      return hasOnlyAllowedFields(['babyName', 'dueDate', 'description', 'ownerId', 'createdAt', 'currency', 'hemisphere', 'coOwnerEmails']) &&
+      return hasOnlyAllowedFields(['babyName', 'dueDate', 'description', 'ownerId', 'createdAt', 'currency', 'hemisphere', 'coOwnerEmails', 'welcomeMessage']) &&
              data.babyName is string && data.babyName.size() > 0 && data.babyName.size() < 100 &&
              data.ownerId is string &&
              (!('currency' in data) || data.currency == null || data.currency is string) &&
              (!('hemisphere' in data) || data.hemisphere == null || data.hemisphere in ['northern', 'southern']) &&
-             (!('coOwnerEmails' in data) || data.coOwnerEmails == null || data.coOwnerEmails is list);
+             (!('coOwnerEmails' in data) || data.coOwnerEmails == null || data.coOwnerEmails is list) &&
+             (!('welcomeMessage' in data) || data.welcomeMessage == null || data.welcomeMessage is string);
     }
 
     function isValidItem(data) {
-      return hasOnlyAllowedFields(['registryId', 'name', 'description', 'price', 'imageUrl', 'url', 'category', 'quantity', 'status', 'claimedBy', 'claimedByEmail', 'claimedAt', 'addedBy', 'createdAt', 'guestMessage', 'thankYouSent', 'isGroupGifting', 'amountContributed', 'contributions', 'reservedUntil', 'quantityClaimed', 'quantityReserved', 'claims']) &&
+      return hasOnlyAllowedFields(['registryId', 'name', 'description', 'price', 'imageUrl', 'url', 'category', 'quantity', 'status', 'claimedBy', 'claimedByEmail', 'claimedAt', 'addedBy', 'createdAt', 'guestMessage', 'thankYouSent', 'isGroupGifting', 'amountContributed', 'contributions', 'reservedUntil', 'quantityClaimed', 'quantityReserved', 'claims', 'isMustHave']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
              data.registryId is string &&
              (!('url' in data) || data.url == null || data.url is string) &&
@@ -99,6 +100,7 @@ service cloud.firestore {
              (!('guestMessage' in data) || data.guestMessage == null || data.guestMessage is string) &&
              (!('thankYouSent' in data) || data.thankYouSent == null || data.thankYouSent is bool) &&
              (!('isGroupGifting' in data) || data.isGroupGifting == null || data.isGroupGifting is bool) &&
+             (!('isMustHave' in data) || data.isMustHave == null || data.isMustHave is bool) &&
              (!('amountContributed' in data) || data.amountContributed == null || data.amountContributed is number) &&
              (!('contributions' in data) || data.contributions == null || data.contributions is list) &&
              (!('reservedUntil' in data) || data.reservedUntil == null || data.reservedUntil is timestamp) &&
@@ -161,6 +163,7 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/registries/$(resource.data.registryId)) && 
          (get(/databases/$(database)/documents/registries/$(resource.data.registryId)).data.ownerId == request.auth.uid ||
           request.auth.token.email in get(/databases/$(database)/documents/registries/$(resource.data.registryId)).data.get('coOwnerEmails', []))) ||
+        isAdmin() ||
         // Guests can update status, claimedBy, claimedByEmail, claimedAt, guestMessage, quantityClaimed, quantityReserved, claims, reservedUntil
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'claimedBy', 'claimedByEmail', 'claimedAt', 'guestMessage', 'quantityClaimed', 'quantityReserved', 'claims', 'reservedUntil']) &&
          (request.resource.data.get('quantityClaimed', 0) + request.resource.data.get('quantityReserved', 0)) <= resource.data.quantity) ||

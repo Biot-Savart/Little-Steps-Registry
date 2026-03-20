@@ -65,6 +65,42 @@ async function startServer() {
     }
   });
 
+  // API Route to search images using Google Custom Search
+  app.get("/api/search-images", async (req, res) => {
+    const query = req.query.q as string;
+    if (!query) {
+      return res.status(400).json({ error: "Query is required" });
+    }
+
+    const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
+    const cx = process.env.GOOGLE_SEARCH_CX;
+
+    if (!apiKey || !cx) {
+      return res.status(501).json({ 
+        error: "Google Search API keys are not configured. Please add GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX in the app settings.",
+        needsConfig: true 
+      });
+    }
+
+    try {
+      const response = await axios.get(`https://www.googleapis.com/customsearch/v1`, {
+        params: {
+          q: query,
+          cx: cx,
+          key: apiKey,
+          searchType: 'image',
+          num: 10
+        }
+      });
+
+      const images = response.data.items?.map((item: any) => item.link) || [];
+      res.json({ images });
+    } catch (error: any) {
+      console.error("Google Image Search error:", error.response?.data || error.message);
+      res.status(500).json({ error: "Failed to fetch images from Google." });
+    }
+  });
+
   // API Route to fetch metadata from a URL
   app.get("/api/metadata", async (req, res) => {
     let url = req.query.url as string;

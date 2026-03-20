@@ -57,7 +57,12 @@ import {
   LayoutGrid,
   List,
   Users,
-  X
+  X,
+  Backpack,
+  Shirt,
+  Utensils,
+  Moon,
+  Gamepad2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -121,6 +126,30 @@ const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean; onClose:
   </AnimatePresence>
 );
 
+const CategoryPlaceholder = ({ category, name, className }: { category?: string, name: string, className?: string }) => {
+  const getCategoryConfig = (cat?: string) => {
+    switch (cat) {
+      case 'Gear': return { Icon: Backpack, bg: 'from-blue-50 to-indigo-100', text: 'text-blue-600' };
+      case 'Clothing': return { Icon: Shirt, bg: 'from-pink-50 to-rose-100', text: 'text-pink-600' };
+      case 'Feeding': return { Icon: Utensils, bg: 'from-orange-50 to-amber-100', text: 'text-orange-600' };
+      case 'Nursery': return { Icon: Moon, bg: 'from-purple-50 to-fuchsia-100', text: 'text-purple-600' };
+      case 'Toys': return { Icon: Gamepad2, bg: 'from-yellow-50 to-lime-100', text: 'text-yellow-600' };
+      default: return { Icon: Gift, bg: 'from-emerald-50 to-teal-100', text: 'text-emerald-600' };
+    }
+  };
+
+  const { Icon, bg, text } = getCategoryConfig(category);
+
+  return (
+    <div className={cn("relative overflow-hidden bg-gradient-to-br shrink-0 flex items-center justify-center", bg, className)}>
+      <Icon className={cn("w-1/2 h-1/2 absolute opacity-10", text)} />
+      <span className={cn("text-xl font-bold uppercase tracking-widest z-10 opacity-40 text-center px-4 break-words line-clamp-3", text)}>
+        {name}
+      </span>
+    </div>
+  );
+};
+
 const CURRENCIES = [
   { code: 'USD', symbol: '$' },
   { code: 'EUR', symbol: '€' },
@@ -132,6 +161,83 @@ const CURRENCIES = [
 
 // --- Main App ---
 
+type ThankYouEntry = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  itemImageUrl?: string;
+  itemCategory: string;
+  gifterName: string;
+  gifterEmail: string;
+  message?: string;
+  amountOrQuantity: string;
+  thankYouSent: boolean;
+  type: 'legacy' | 'claim' | 'contribution';
+  index?: number;
+};
+
+const getThankYouEntries = (items: RegistryItem[]): ThankYouEntry[] => {
+  const entries: ThankYouEntry[] = [];
+  items.forEach(item => {
+    if (item.claims && item.claims.length > 0) {
+      item.claims.forEach((claim, index) => {
+        if (claim.status === 'claimed') {
+          entries.push({
+            id: `${item.id}-claim-${index}`,
+            itemId: item.id,
+            itemName: item.name,
+            itemImageUrl: item.imageUrl,
+            itemCategory: item.category,
+            gifterName: claim.userName,
+            gifterEmail: claim.email,
+            message: claim.message,
+            amountOrQuantity: `Qty: ${claim.quantity}`,
+            thankYouSent: !!claim.thankYouSent,
+            type: 'claim',
+            index
+          });
+        }
+      });
+    }
+    
+    if (item.contributions && item.contributions.length > 0) {
+      item.contributions.forEach((contrib, index) => {
+        entries.push({
+          id: `${item.id}-contrib-${index}`,
+          itemId: item.id,
+          itemName: item.name,
+          itemImageUrl: item.imageUrl,
+          itemCategory: item.category,
+          gifterName: contrib.userName,
+          gifterEmail: contrib.email,
+          message: contrib.message,
+          amountOrQuantity: `Amount: $${contrib.amount}`,
+          thankYouSent: !!contrib.thankYouSent,
+          type: 'contribution',
+          index
+        });
+      });
+    } 
+    
+    if (!item.claims?.length && !item.contributions?.length && item.status === 'claimed' && item.claimedByEmail) {
+      entries.push({
+        id: `${item.id}-legacy`,
+        itemId: item.id,
+        itemName: item.name,
+        itemImageUrl: item.imageUrl,
+        itemCategory: item.category,
+        gifterName: item.claimedByEmail,
+        gifterEmail: item.claimedByEmail,
+        message: item.guestMessage,
+        amountOrQuantity: `Qty: ${item.quantity}`,
+        thankYouSent: !!item.thankYouSent,
+        type: 'legacy'
+      });
+    }
+  });
+  return entries;
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -141,6 +247,8 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
+  const [isBatchAddModalOpen, setIsBatchAddModalOpen] = useState(false);
+  const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
   const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isSizeGuideModalOpen, setIsSizeGuideModalOpen] = useState(false);
@@ -154,7 +262,8 @@ export default function App() {
   const [claimMode, setClaimMode] = useState<'claim' | 'reserve'>('claim');
   const [editingItem, setEditingItem] = useState<RegistryItem | null>(null);
   const [filterCategory, setFilterCategory] = useState('All');
-  const [sortBy, setSortBy] = useState<'date' | 'name' | 'price'>('date');
+  const [hideClaimed, setHideClaimed] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'name' | 'price' | 'price-asc' | 'price-desc'>('date');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [loading, setLoading] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -407,25 +516,64 @@ export default function App() {
 
     const checkExpirations = async () => {
       const now = Date.now();
-      const expiredItems = items.filter(item => 
-        item.status === 'reserved' && 
-        item.reservedUntil && 
-        (typeof item.reservedUntil === 'number' ? item.reservedUntil : item.reservedUntil.toMillis()) < now
-      );
+      
+      for (const item of items) {
+        let needsUpdate = false;
+        const updateData: any = {};
 
-      for (const item of expiredItems) {
-        try {
-          const itemRef = doc(db, 'items', item.id);
-          await updateDoc(itemRef, {
-            status: 'available',
-            claimedBy: null,
-            claimedByEmail: null,
-            claimedAt: null,
-            reservedUntil: null,
-            guestMessage: null
+        // Check legacy reservation
+        if (item.status === 'reserved' && item.reservedUntil) {
+          const reservedTime = typeof item.reservedUntil === 'number' ? item.reservedUntil : item.reservedUntil.toMillis();
+          if (reservedTime < now) {
+            needsUpdate = true;
+            updateData.status = 'available';
+            updateData.claimedBy = null;
+            updateData.claimedByEmail = null;
+            updateData.claimedAt = null;
+            updateData.reservedUntil = null;
+            updateData.guestMessage = null;
+          }
+        }
+
+        // Check multi-claim reservations
+        if (item.claims && item.claims.length > 0) {
+          const validClaims = item.claims.filter(claim => {
+            if (claim.status === 'reserved' && claim.reservedUntil) {
+              const reservedTime = typeof claim.reservedUntil === 'number' ? claim.reservedUntil : claim.reservedUntil.toMillis();
+              return reservedTime >= now; // Keep if not expired
+            }
+            return true; // Keep claimed items
           });
-        } catch (error) {
-          console.error('Error expiring reservation:', error);
+
+          if (validClaims.length !== item.claims.length) {
+            needsUpdate = true;
+            updateData.claims = validClaims;
+            
+            // Recalculate quantities
+            const newQuantityClaimed = validClaims.filter(c => c.status === 'claimed').reduce((sum, c) => sum + c.quantity, 0);
+            const newQuantityReserved = validClaims.filter(c => c.status === 'reserved').reduce((sum, c) => sum + c.quantity, 0);
+            
+            updateData.quantityClaimed = newQuantityClaimed;
+            updateData.quantityReserved = newQuantityReserved;
+            updateData.status = newQuantityClaimed >= item.quantity ? 'claimed' : (newQuantityClaimed + newQuantityReserved >= item.quantity ? 'reserved' : 'available');
+            
+            // Sync legacy fields
+            updateData.claimedBy = newQuantityClaimed >= item.quantity ? (validClaims.find(c => c.status === 'claimed')?.uid || null) : null;
+            updateData.claimedByEmail = newQuantityClaimed >= item.quantity ? (validClaims.find(c => c.status === 'claimed')?.email || null) : null;
+            updateData.claimedAt = newQuantityClaimed >= item.quantity ? (validClaims.find(c => c.status === 'claimed')?.createdAt || null) : null;
+            if (newQuantityClaimed < item.quantity) {
+              updateData.guestMessage = null;
+            }
+          }
+        }
+
+        if (needsUpdate) {
+          try {
+            const itemRef = doc(db, 'items', item.id);
+            await updateDoc(itemRef, updateData);
+          } catch (error) {
+            console.error('Error expiring reservation:', error);
+          }
         }
       }
     };
@@ -440,6 +588,7 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const registryId = params.get('registryId');
+    const itemId = params.get('itemId');
     
     if (registryId && !selectedRegistry) {
       const fetchRegistry = async () => {
@@ -454,7 +603,20 @@ export default function App() {
       };
       fetchRegistry();
     }
-  }, [isAuthReady]);
+
+    if (itemId && items.length > 0) {
+      const element = document.getElementById(`item-${itemId}`);
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.classList.add('ring-4', 'ring-emerald-500', 'ring-offset-2', 'rounded-2xl');
+          setTimeout(() => {
+            element.classList.remove('ring-4', 'ring-emerald-500', 'ring-offset-2', 'rounded-2xl');
+          }, 3000);
+        }, 500);
+      }
+    }
+  }, [isAuthReady, items.length]);
 
   const handleAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -601,6 +763,7 @@ export default function App() {
     const babyName = formData.get('babyName') as string;
     const dueDate = formData.get('dueDate') as string;
     const description = formData.get('description') as string;
+    const welcomeMessage = formData.get('welcomeMessage') as string;
     const currency = formData.get('currency') as string;
     const hemisphere = formData.get('hemisphere') as string || 'northern';
 
@@ -609,6 +772,7 @@ export default function App() {
         babyName,
         dueDate,
         description,
+        welcomeMessage,
         currency,
         hemisphere,
         ownerId: user.uid,
@@ -628,6 +792,7 @@ export default function App() {
     const babyName = formData.get('babyName') as string;
     const dueDate = formData.get('dueDate') as string;
     const description = formData.get('description') as string;
+    const welcomeMessage = formData.get('welcomeMessage') as string;
     const currency = formData.get('currency') as string;
     const hemisphere = formData.get('hemisphere') as string || 'northern';
 
@@ -637,6 +802,7 @@ export default function App() {
         babyName,
         dueDate,
         description,
+        welcomeMessage,
         currency,
         hemisphere
       });
@@ -645,6 +811,7 @@ export default function App() {
         babyName,
         dueDate,
         description,
+        welcomeMessage,
         currency,
         hemisphere: hemisphere as 'northern' | 'southern'
       });
@@ -707,6 +874,7 @@ export default function App() {
     const url = (formData.get('url') as string) || "";
     const description = (formData.get('description') as string) || "";
     const isGroupGifting = formData.get('isGroupGifting') === 'on';
+    const isMustHave = formData.get('isMustHave') === 'on';
 
     setIsSubmittingItem(true);
     try {
@@ -723,6 +891,7 @@ export default function App() {
         addedBy: user.uid,
         createdAt: serverTimestamp(),
         isGroupGifting,
+        isMustHave,
         amountContributed: 0,
         contributions: [],
         quantityClaimed: 0,
@@ -739,6 +908,50 @@ export default function App() {
     }
   };
 
+  const handleBatchAdd = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!user || !selectedRegistry) return;
+
+    const formData = new FormData(e.currentTarget);
+    const text = formData.get('itemsText') as string;
+    const category = formData.get('category') as string;
+    
+    if (!text.trim()) return;
+
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+    setIsSubmittingBatch(true);
+    try {
+      const promises = lines.map(line => {
+        return addDoc(collection(db, 'items'), {
+          registryId: selectedRegistry.id,
+          name: line,
+          description: '',
+          price: null,
+          quantity: 1,
+          url: '',
+          imageUrl: null,
+          category: category || 'Other',
+          status: 'available',
+          addedBy: user.uid,
+          createdAt: serverTimestamp(),
+          isGroupGifting: false,
+          amountContributed: 0,
+          contributions: [],
+          quantityClaimed: 0,
+          quantityReserved: 0,
+          claims: []
+        });
+      });
+      await Promise.all(promises);
+      setIsBatchAddModalOpen(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'items');
+    } finally {
+      setIsSubmittingBatch(false);
+    }
+  };
+
   const editItem = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user || !editingItem) return;
@@ -748,6 +961,7 @@ export default function App() {
     const price = (priceVal !== null && priceVal !== "") ? Number(priceVal) : null;
     const url = formData.get('url') as string;
     const isGroupGifting = formData.get('isGroupGifting') === 'on';
+    const isMustHave = formData.get('isMustHave') === 'on';
 
     setIsSubmittingItem(true);
     try {
@@ -760,7 +974,8 @@ export default function App() {
         url,
         imageUrl: selectedImageUrl || null,
         category: formData.get('category') as string,
-        isGroupGifting
+        isGroupGifting,
+        isMustHave
       };
 
       if (!editingItem.createdAt) {
@@ -918,11 +1133,63 @@ export default function App() {
     }
   };
 
-  const toggleThankYouSent = async (item: RegistryItem) => {
+  const toggleThankYouSent = async (entry: ThankYouEntry) => {
+    try {
+      const itemRef = doc(db, 'items', entry.itemId);
+      const item = items.find(i => i.id === entry.itemId);
+      if (!item) return;
+
+      if (entry.type === 'legacy') {
+        await updateDoc(itemRef, {
+          thankYouSent: !entry.thankYouSent
+        });
+      } else if (entry.type === 'claim' && entry.index !== undefined && item.claims) {
+        const newClaims = [...item.claims];
+        newClaims[entry.index].thankYouSent = !entry.thankYouSent;
+        await updateDoc(itemRef, {
+          claims: newClaims
+        });
+      } else if (entry.type === 'contribution' && entry.index !== undefined && item.contributions) {
+        const newContribs = [...item.contributions];
+        newContribs[entry.index].thankYouSent = !entry.thankYouSent;
+        await updateDoc(itemRef, {
+          contributions: newContribs
+        });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `items/${entry.itemId}`);
+    }
+  };
+
+  const markAsPurchased = async (item: RegistryItem) => {
+    if (!user || !isOwner) return;
+
+    const remainingQty = item.quantity - (item.quantityClaimed || 0) - (item.quantityReserved || 0);
+    if (remainingQty <= 0) return;
+
     try {
       const itemRef = doc(db, 'items', item.id);
+      
+      const newClaim = {
+        uid: user.uid,
+        email: user.email || '',
+        userName: user.displayName || 'Owner',
+        quantity: remainingQty,
+        message: 'Marked as purchased by owner',
+        status: 'claimed',
+        createdAt: Timestamp.now(),
+        reservedUntil: null
+      };
+
       await updateDoc(itemRef, {
-        thankYouSent: !item.thankYouSent
+        claims: arrayUnion(newClaim),
+        quantityClaimed: (item.quantityClaimed || 0) + remainingQty,
+        status: 'claimed',
+        claimedBy: user.uid,
+        claimedByEmail: user.email,
+        claimedAt: serverTimestamp(),
+        guestMessage: 'Marked as purchased by owner',
+        reservedUntil: null
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `items/${item.id}`);
@@ -1254,6 +1521,31 @@ export default function App() {
                 </button>
                 <h2 className="text-3xl font-bold text-stone-900">{selectedRegistry.babyName}'s Registry</h2>
                 <p className="text-stone-500 mt-1">{selectedRegistry.description}</p>
+                {selectedRegistry.welcomeMessage && (
+                  <div className="mt-4 p-4 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 text-sm">
+                    {selectedRegistry.welcomeMessage}
+                  </div>
+                )}
+                
+                {/* Progress Tracker */}
+                {items.length > 0 && (
+                  <div className="mt-6 max-w-md">
+                    <div className="flex justify-between items-end mb-2">
+                      <span className="text-sm font-bold text-stone-700">Registry Progress</span>
+                      <span className="text-xs font-medium text-stone-500">
+                        {items.reduce((acc, item) => acc + (item.status === 'claimed' ? item.quantity : (item.quantityClaimed || 0)), 0)} of {items.reduce((acc, item) => acc + item.quantity, 0)} items claimed
+                      </span>
+                    </div>
+                    <div className="h-3 w-full bg-stone-100 rounded-full overflow-hidden border border-stone-200/50">
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${items.reduce((acc, item) => acc + item.quantity, 0) > 0 ? Math.round((items.reduce((acc, item) => acc + (item.status === 'claimed' ? item.quantity : (item.quantityClaimed || 0)), 0) / items.reduce((acc, item) => acc + item.quantity, 0)) * 100) : 0}%` }}
+                        transition={{ duration: 1, ease: "easeOut" }}
+                        className="h-full bg-emerald-500 rounded-full"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {selectedRegistry.dueDate && (
@@ -1298,56 +1590,53 @@ export default function App() {
                   </div>
                   <div className="bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100">
                     <span className="text-emerald-700 font-bold text-lg">
-                      {items.filter(i => i.status === 'claimed' && i.thankYouSent).length} / {items.filter(i => i.status === 'claimed').length}
+                      {getThankYouEntries(items).filter(e => e.thankYouSent).length} / {getThankYouEntries(items).length}
                     </span>
                     <span className="text-emerald-600 text-sm ml-2 font-medium">Sent</span>
                   </div>
                 </div>
 
                 <div className="space-y-3">
-                  {items.filter(i => i.status === 'claimed').length === 0 ? (
+                  {getThankYouEntries(items).length === 0 ? (
                     <div className="text-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
                       <Clock className="w-10 h-10 text-stone-300 mx-auto mb-3" />
                       <p className="text-stone-500 font-medium">No items have been claimed yet.</p>
                     </div>
                   ) : (
-                    items
-                      .filter(i => i.status === 'claimed')
+                    getThankYouEntries(items)
                       .sort((a, b) => (a.thankYouSent === b.thankYouSent ? 0 : a.thankYouSent ? 1 : -1))
-                      .map((item) => (
+                      .map((entry) => (
                         <div 
-                          key={item.id} 
+                          key={entry.id} 
                           className={cn(
                             "flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl border transition-all",
-                            item.thankYouSent 
+                            entry.thankYouSent 
                               ? "bg-stone-50 border-stone-100 opacity-75" 
                               : "bg-white border-stone-100 shadow-sm hover:shadow-md"
                           )}
                         >
                           <div className="flex items-center gap-4 mb-4 sm:mb-0">
-                            {item.imageUrl ? (
-                              <img src={item.imageUrl} alt={item.name} className="w-16 h-16 rounded-xl object-cover bg-stone-100" />
+                            {entry.itemImageUrl ? (
+                              <img src={entry.itemImageUrl} alt={entry.itemName} className="w-16 h-16 rounded-xl object-cover bg-stone-100" />
                             ) : (
-                              <div className="w-16 h-16 rounded-xl bg-stone-100 flex items-center justify-center">
-                                <Package className="w-8 h-8 text-stone-300" />
-                              </div>
+                              <CategoryPlaceholder category={entry.itemCategory} name={entry.itemName} className="w-16 h-16 rounded-xl" />
                             )}
                             <div>
-                              <h4 className="font-bold text-stone-900">{item.name}</h4>
-                              <p className="text-sm text-stone-500">Claimed by: <span className="font-semibold text-stone-700">{item.claimedByEmail || 'Anonymous'}</span></p>
-                              {item.guestMessage && (
+                              <h4 className="font-bold text-stone-900">{entry.itemName}</h4>
+                              <p className="text-sm text-stone-500">From: <span className="font-semibold text-stone-700">{entry.gifterName || entry.gifterEmail || 'Anonymous'}</span> <span className="text-stone-400 mx-1">•</span> {entry.amountOrQuantity}</p>
+                              {entry.message && (
                                 <div className="mt-2 p-2 bg-emerald-50/50 rounded-lg border border-emerald-100/50 italic text-xs text-stone-600">
-                                  "{item.guestMessage}"
+                                  "{entry.message}"
                                 </div>
                               )}
                             </div>
                           </div>
                           <Button 
-                            variant={item.thankYouSent ? "outline" : "primary"}
-                            onClick={() => toggleThankYouSent(item)}
+                            variant={entry.thankYouSent ? "outline" : "primary"}
+                            onClick={() => toggleThankYouSent(entry)}
                             className="sm:w-auto w-full"
                           >
-                            {item.thankYouSent ? (
+                            {entry.thankYouSent ? (
                               <>
                                 <CheckCircle className="w-4 h-4 mr-2" />
                                 Sent
@@ -1407,6 +1696,18 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
+                      <label className="flex items-center gap-2 px-2 py-1 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={hideClaimed}
+                          onChange={(e) => setHideClaimed(e.target.checked)}
+                          className="rounded text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="text-xs font-medium text-stone-600">Hide Claimed</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider ml-2 mr-1">Sort:</span>
                       <select 
                         value={sortBy}
@@ -1415,21 +1716,32 @@ export default function App() {
                       >
                         <option value="date">Date Added</option>
                         <option value="name">Name</option>
-                        <option value="price">Price</option>
+                        <option value="price-asc">Price: Low to High</option>
+                        <option value="price-desc">Price: High to Low</option>
                       </select>
                     </div>
 
                     {isOwner && (
-                      <Button 
-                        className="rounded-xl px-4 py-2 text-xs h-auto"
-                        onClick={() => {
-                          setFetchMetadataError(null);
-                          setIsAddItemModalOpen(true);
-                        }}
-                      >
-                        <Plus className="w-4 h-4 mr-1.5" />
-                        Add Item
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline"
+                          className="rounded-xl px-4 py-2 text-xs h-auto"
+                          onClick={() => setIsBatchAddModalOpen(true)}
+                        >
+                          <List className="w-4 h-4 mr-1.5" />
+                          Batch Add
+                        </Button>
+                        <Button 
+                          className="rounded-xl px-4 py-2 text-xs h-auto"
+                          onClick={() => {
+                            setFetchMetadataError(null);
+                            setIsAddItemModalOpen(true);
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-1.5" />
+                          Add Item
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1441,22 +1753,25 @@ export default function App() {
                 )}>
                   {items
                     .filter(item => filterCategory === 'All' || item.category === filterCategory)
+                    .filter(item => !hideClaimed || item.status !== 'claimed')
                     .sort((a, b) => {
                       if (sortBy === 'name') return a.name.localeCompare(b.name);
-                      if (sortBy === 'price') return (a.price || 0) - (b.price || 0);
+                      if (sortBy === 'price-asc') return (a.price || 0) - (b.price || 0);
+                      if (sortBy === 'price-desc') return (b.price || 0) - (a.price || 0);
+                      if (sortBy === 'price') return (a.price || 0) - (b.price || 0); // fallback
                       // Default to date added (newest first)
                       const dateA = a.createdAt?.seconds || 0;
                       const dateB = b.createdAt?.seconds || 0;
                       return dateB - dateA;
                     })
                     .map((item) => (
-                    <motion.div key={item.id} layout>
+                    <motion.div key={item.id} id={`item-${item.id}`} layout>
                       <Card className={cn(
                         'transition-all overflow-hidden',
                         viewMode === 'grid' ? 'h-full flex flex-col' : 'flex flex-col sm:flex-row',
                         item.status === 'claimed' ? 'opacity-75 grayscale-[0.5]' : 'hover:shadow-md'
                       )}>
-                        {item.imageUrl && (
+                        {item.imageUrl ? (
                           <div className={cn(
                             "relative overflow-hidden bg-stone-100 border-stone-50 shrink-0",
                             viewMode === 'grid' ? "aspect-[4/3] w-full border-b" : "w-full h-40 sm:w-32 sm:h-auto self-stretch border-b sm:border-b-0 sm:border-r"
@@ -1468,41 +1783,72 @@ export default function App() {
                               referrerPolicy="no-referrer"
                             />
                           </div>
+                        ) : (
+                          <CategoryPlaceholder 
+                            category={item.category} 
+                            name={item.name} 
+                            className={viewMode === 'grid' ? "aspect-[4/3] w-full border-b" : "w-full h-40 sm:w-32 sm:h-auto self-stretch border-b sm:border-b-0 sm:border-r"} 
+                          />
                         )}
                         <div className={cn(
                           "p-3 sm:p-4 flex-1 flex flex-col min-w-0",
                           viewMode === 'list' && "justify-between"
                         )}>
                           <div className={cn(
-                            "flex justify-between items-start",
+                            "flex justify-between items-start gap-2",
                             viewMode === 'grid' ? "mb-2" : "mb-1"
                           )}>
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">
-                              {item.category || 'General'}
-                            </span>
-                            {isOwner && (
-                              <div className="flex items-center gap-2">
-                                <button 
-                                  onClick={() => {
-                                    setEditingItem(item);
-                                    setSelectedImageUrl(item.imageUrl || null);
-                                    setFetchMetadataError(null);
-                                    setIsEditItemModalOpen(true);
-                                  }}
-                                  className="text-stone-300 hover:text-emerald-600 transition-colors"
-                                  title="Edit Item"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                <button 
-                                  onClick={() => deleteItem(item.id)}
-                                  className="text-stone-300 hover:text-rose-500 transition-colors"
-                                  title="Delete Item"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">
+                                {item.category || 'General'}
+                              </span>
+                              {item.isMustHave && (
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                  <Heart className="w-3 h-3 fill-rose-600" />
+                                  Must-Have
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const url = new URL(window.location.href);
+                                  url.searchParams.set('registryId', selectedRegistry.id);
+                                  url.searchParams.set('itemId', item.id);
+                                  navigator.clipboard.writeText(url.toString());
+                                  setShowShareToast(true);
+                                  setTimeout(() => setShowShareToast(false), 3000);
+                                }}
+                                className="text-stone-300 hover:text-emerald-600 transition-colors"
+                                title="Share Item"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                              {isOwner && (
+                                <>
+                                  <button 
+                                    onClick={() => {
+                                      setEditingItem(item);
+                                      setSelectedImageUrl(item.imageUrl || null);
+                                      setFetchMetadataError(null);
+                                      setIsEditItemModalOpen(true);
+                                    }}
+                                    className="text-stone-300 hover:text-emerald-600 transition-colors"
+                                    title="Edit Item"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => deleteItem(item.id)}
+                                    className="text-stone-300 hover:text-rose-500 transition-colors"
+                                    title="Delete Item"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                           <h4 className={cn(
                             "font-bold text-stone-900 mb-0.5",
@@ -1705,23 +2051,6 @@ export default function App() {
                                     </Button>
                                   </div>
                                   
-                                  {isOwner && isClaimed && (
-                                    <Button 
-                                      variant={item.thankYouSent ? "outline" : "primary"}
-                                      onClick={() => toggleThankYouSent(item)}
-                                      className="w-full text-[10px] h-8"
-                                    >
-                                      {item.thankYouSent ? (
-                                        <>
-                                          <CheckCircle className="w-3 h-3 mr-1.5" />
-                                          Thank You Sent
-                                        </>
-                                      ) : (
-                                        'Mark Thank You Sent'
-                                      )}
-                                    </Button>
-                                  )}
-                                  
                                   {remainingQty > 0 && (
                                     <Button 
                                       variant="outline" 
@@ -1769,16 +2098,28 @@ export default function App() {
                                   <Heart className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
                                   {user ? (item.quantity > 1 ? 'Claim Some' : 'Claim') : 'Sign in'}
                                 </Button>
-                                <Button 
-                                  className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
-                                  variant="ghost"
-                                  onClick={() => reserveItem(item)}
-                                  disabled={!user || remainingQty <= 0}
-                                  title={!user ? "Sign in to reserve this item" : ""}
-                                >
-                                  <Clock className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
-                                  {user ? (item.quantity > 1 ? 'Reserve Some' : 'Reserve') : 'Sign in'}
-                                </Button>
+                                {isOwner ? (
+                                  <Button 
+                                    className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
+                                    variant="ghost"
+                                    onClick={() => markAsPurchased(item)}
+                                    disabled={!user || remainingQty <= 0}
+                                  >
+                                    <CheckCircle className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
+                                    Mark Purchased
+                                  </Button>
+                                ) : (
+                                  <Button 
+                                    className={cn("text-[10px] h-8", viewMode === 'grid' ? "flex-1" : "w-full")} 
+                                    variant="ghost"
+                                    onClick={() => reserveItem(item)}
+                                    disabled={!user || remainingQty <= 0}
+                                    title={!user ? "Sign in to reserve this item" : ""}
+                                  >
+                                    <Clock className={viewMode === 'grid' ? "w-4 h-4 mr-2" : "w-3 h-3 mr-1.5"} />
+                                    {user ? (item.quantity > 1 ? 'Reserve Some' : 'Reserve') : 'Sign in'}
+                                  </Button>
+                                )}
                               </div>
                             );
                           })()}
@@ -1942,6 +2283,15 @@ export default function App() {
               placeholder="A little bit about your registry..."
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Welcome Message (Optional)</label>
+            <textarea 
+              name="welcomeMessage" 
+              rows={2}
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              placeholder="A special note for your guests..."
+            />
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
@@ -1968,6 +2318,44 @@ export default function App() {
             </div>
           </div>
           <Button type="submit" className="w-full py-3">Create Registry</Button>
+        </form>
+      </Modal>
+
+      <Modal 
+        isOpen={isBatchAddModalOpen} 
+        onClose={() => setIsBatchAddModalOpen(false)} 
+        title="Batch Add Items"
+      >
+        <form onSubmit={handleBatchAdd} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Items List</label>
+            <p className="text-xs text-stone-500 mb-2">Paste a list of items, one per line. Each line will become a separate item in your registry.</p>
+            <textarea 
+              name="itemsText" 
+              required 
+              rows={8}
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all custom-scrollbar"
+              placeholder="Saline nose spray&#10;Baba hangers&#10;Sudocrem/oh lief bum balm&#10;Bad goedjies en roompies (oh lief, epimax, Aveeno)&#10;Doeke (huggies extra care, huggies Gold, pampers premium, pampers)&#10;Mussies (blou, wit, grys, cream, groen)&#10;Vessies alles grotes van 3 tot 24 maande langmou en kortmou afhangend van seisoen&#10;Fluffy onesies, double sided zip, newborn."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">Category (Optional)</label>
+            <select 
+              name="category" 
+              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+            >
+              <option value="">Select a category for all items...</option>
+              <option value="Gear">Gear & Travel</option>
+              <option value="Clothing">Clothing</option>
+              <option value="Feeding">Feeding</option>
+              <option value="Nursery">Nursery</option>
+              <option value="Toys">Toys & Play</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <Button type="submit" className="w-full py-3" disabled={isSubmittingBatch}>
+            {isSubmittingBatch ? 'Adding Items...' : 'Add All Items'}
+          </Button>
         </form>
       </Modal>
 
@@ -2036,6 +2424,17 @@ export default function App() {
             />
             <label htmlFor="isGroupGifting" className="text-sm font-medium text-stone-700">
               Enable Group Gifting (for big items)
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input 
+              name="isMustHave" 
+              type="checkbox"
+              id="isMustHave"
+              className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <label htmlFor="isMustHave" className="text-sm font-medium text-stone-700">
+              Mark as "Must-Have" Item
             </label>
           </div>
           <div>
@@ -2131,15 +2530,17 @@ export default function App() {
 
           {(!fetchedImages || fetchedImages.length === 0) && (
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Image URL (Optional)</label>
-              <input 
-                name="imageUrl" 
-                type="url"
-                value={selectedImageUrl || ''}
-                onChange={(e) => setSelectedImageUrl(e.target.value)}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                placeholder="https://..."
-              />
+              <label className="block text-sm font-medium text-stone-700 mb-1">Image (Optional)</label>
+              <div className="flex gap-2">
+                <input 
+                  name="imageUrl" 
+                  type="url"
+                  value={selectedImageUrl || ''}
+                  onChange={(e) => setSelectedImageUrl(e.target.value)}
+                  className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  placeholder="https://..."
+                />
+              </div>
             </div>
           )}
           <div>
@@ -2228,6 +2629,18 @@ export default function App() {
               />
               <label htmlFor="editIsGroupGifting" className="text-sm font-medium text-stone-700">
                 Enable Group Gifting (for big items)
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input 
+                name="isMustHave" 
+                type="checkbox"
+                id="editIsMustHave"
+                defaultChecked={editingItem.isMustHave}
+                className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <label htmlFor="editIsMustHave" className="text-sm font-medium text-stone-700">
+                Mark as "Must-Have" Item
               </label>
             </div>
             <div>
@@ -2346,15 +2759,17 @@ export default function App() {
 
             {(!fetchedImages || fetchedImages.length === 0) && !editingItem.imageUrl && (
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Image URL (Optional)</label>
-                <input 
-                  name="imageUrl" 
-                  type="url"
-                  value={selectedImageUrl || ''}
-                  onChange={(e) => setSelectedImageUrl(e.target.value)}
-                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                  placeholder="https://..."
-                />
+                <label className="block text-sm font-medium text-stone-700 mb-1">Image (Optional)</label>
+                <div className="flex gap-2">
+                  <input 
+                    name="imageUrl" 
+                    type="url"
+                    value={selectedImageUrl || ''}
+                    onChange={(e) => setSelectedImageUrl(e.target.value)}
+                    className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    placeholder="https://..."
+                  />
+                </div>
               </div>
             )}
             <div>
@@ -2448,6 +2863,16 @@ export default function App() {
                 defaultValue={selectedRegistry.description}
                 className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="A little bit about your registry..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Welcome Message (Optional)</label>
+              <textarea 
+                name="welcomeMessage" 
+                rows={2}
+                defaultValue={selectedRegistry.welcomeMessage}
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                placeholder="A special note for your guests..."
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -2556,9 +2981,7 @@ export default function App() {
             {claimingItem?.imageUrl ? (
               <img src={claimingItem.imageUrl} alt={claimingItem.name} className="w-16 h-16 rounded-xl object-cover" />
             ) : (
-              <div className="w-16 h-16 rounded-xl bg-stone-200 flex items-center justify-center">
-                <Package className="w-8 h-8 text-stone-400" />
-              </div>
+              <CategoryPlaceholder category={claimingItem?.category} name={claimingItem?.name || ''} className="w-16 h-16 rounded-xl" />
             )}
             <div>
               <h4 className="font-bold text-stone-900">{claimingItem?.name}</h4>
@@ -2627,9 +3050,7 @@ export default function App() {
               {contributingItem.imageUrl ? (
                 <img src={contributingItem.imageUrl} alt={contributingItem.name} className="w-16 h-16 rounded-xl object-cover" />
               ) : (
-                <div className="w-16 h-16 rounded-xl bg-stone-200 flex items-center justify-center">
-                  <Package className="w-8 h-8 text-stone-400" />
-                </div>
+                <CategoryPlaceholder category={contributingItem.category} name={contributingItem.name} className="w-16 h-16 rounded-xl" />
               )}
               <div className="flex-1">
                 <h4 className="font-bold text-stone-900">{contributingItem.name}</h4>

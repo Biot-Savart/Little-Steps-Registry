@@ -11,6 +11,7 @@ export interface Registry {
   babyName: string;
   dueDate: string;
   description: string;
+  welcomeMessage?: string;
   ownerId: string;
   coOwnerEmails?: string[];
   createdAt: any;
@@ -31,6 +32,7 @@ export interface RegistryItem {
   quantity: number;
   quantityClaimed?: number;
   quantityReserved?: number;
+  isMustHave?: boolean;
   claims?: { 
     uid: string; 
     email: string; 
@@ -40,6 +42,7 @@ export interface RegistryItem {
     status: 'claimed' | 'reserved';
     createdAt: any;
     reservedUntil?: any;
+    thankYouSent?: boolean;
   }[];
   claimedBy?: string;
   claimedByEmail?: string;
@@ -48,7 +51,7 @@ export interface RegistryItem {
   thankYouSent?: boolean;
   isGroupGifting?: boolean;
   amountContributed?: number;
-  contributions?: { uid: string; email: string; userName: string; amount: number; message?: string; createdAt: any }[];
+  contributions?: { uid: string; email: string; userName: string; amount: number; message?: string; createdAt: any; thankYouSent?: boolean }[];
   reservedUntil?: any;
   addedBy: string;
   createdAt?: any;
