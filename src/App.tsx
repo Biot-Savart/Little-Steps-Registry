@@ -68,6 +68,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { toast } from 'react-hot-toast';
+import { GoogleGenAI, Type } from '@google/genai';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -249,6 +250,10 @@ export default function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [isBatchAddModalOpen, setIsBatchAddModalOpen] = useState(false);
+  const [isAIRecommenderOpen, setIsAIRecommenderOpen] = useState(false);
+  const [isAILoading, setIsAILoading] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<any[]>([]);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
   const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -972,6 +977,67 @@ export default function App() {
       handleFirestoreError(error, OperationType.CREATE, 'items');
     } finally {
       setIsSubmittingBatch(false);
+    }
+  };
+
+  const generateAIRecommendations = async () => {
+    if (!selectedRegistry) return;
+    setIsAILoading(true);
+    setAiError(null);
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key is not configured.");
+      }
+      const ai = new GoogleGenAI({ apiKey });
+
+      const currentItemsList = items.map(item => `- ${item.name} (${item.category})`).join('\n');
+      
+      const prompt = `
+        You are an expert baby registry consultant.
+        Here is a baby registry for a baby due on ${selectedRegistry.dueDate} in the ${selectedRegistry.hemisphere} hemisphere.
+        
+        Current items in the registry:
+        ${currentItemsList || "No items yet."}
+        
+        Based on the current items, the due date (consider the season), and the hemisphere, what are 5 to 8 essential items that are missing from this registry?
+        Provide practical, specific recommendations.
+      `;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: "Name of the product" },
+                category: { type: Type.STRING, description: "Category (e.g., Gear, Feeding, Clothing, Nursery, Toys, Health, Diapering)" },
+                description: { type: Type.STRING, description: "Short description of the item" },
+                estimatedPrice: { type: Type.NUMBER, description: "Estimated price in USD" },
+                reason: { type: Type.STRING, description: "Why this is recommended based on the registry gaps, due date, or season" }
+              },
+              required: ["name", "category", "description", "estimatedPrice", "reason"]
+            }
+          }
+        }
+      });
+
+      const text = response.text;
+      if (text) {
+        const parsed = JSON.parse(text);
+        setAiSuggestions(parsed);
+      } else {
+        throw new Error("No response from AI.");
+      }
+    } catch (error: any) {
+      console.error("AI Recommendation Error:", error);
+      setAiError(error.message || "Failed to generate recommendations. Please try again.");
+    } finally {
+      setIsAILoading(false);
     }
   };
 
@@ -1748,6 +1814,19 @@ export default function App() {
                       <div className="flex gap-2">
                         <Button 
                           variant="outline"
+                          className="rounded-xl px-4 py-2 text-xs h-auto bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100"
+                          onClick={() => {
+                            setIsAIRecommenderOpen(true);
+                            if (aiSuggestions.length === 0) {
+                              generateAIRecommendations();
+                            }
+                          }}
+                        >
+                          <span className="mr-1.5">✨</span>
+                          Smart Recommender
+                        </Button>
+                        <Button 
+                          variant="outline"
                           className="rounded-xl px-4 py-2 text-xs h-auto"
                           onClick={() => setIsBatchAddModalOpen(true)}
                         >
@@ -2342,6 +2421,102 @@ export default function App() {
           </div>
           <Button type="submit" className="w-full py-3">Create Registry</Button>
         </form>
+      </Modal>
+
+      <Modal 
+        isOpen={isAIRecommenderOpen} 
+        onClose={() => setIsAIRecommenderOpen(false)} 
+        title="✨ Smart Gift Recommender"
+      >
+        <div className="space-y-6">
+          <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl text-sm leading-relaxed">
+            <p className="font-medium mb-1">AI Gap Analysis</p>
+            <p>We analyze your current registry items, your baby's due date, and the season to suggest essential items you might have missed.</p>
+          </div>
+
+          {isAILoading ? (
+            <div className="flex flex-col items-center justify-center py-12 text-stone-400">
+              <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+              <p className="text-sm">Analyzing your registry...</p>
+            </div>
+          ) : aiError ? (
+            <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-sm">
+              <p className="font-medium mb-2">Oops!</p>
+              <p>{aiError}</p>
+              <Button 
+                variant="outline" 
+                className="mt-4 w-full border-rose-200 text-rose-700 hover:bg-rose-100"
+                onClick={generateAIRecommendations}
+              >
+                Try Again
+              </Button>
+            </div>
+          ) : aiSuggestions.length > 0 ? (
+            <div className="space-y-4">
+              {aiSuggestions.map((suggestion, index) => (
+                <div key={index} className="border border-stone-100 rounded-xl p-4 hover:border-indigo-100 hover:shadow-sm transition-all bg-white">
+                  <div className="flex justify-between items-start gap-4 mb-2">
+                    <div>
+                      <h4 className="font-semibold text-stone-900">{suggestion.name}</h4>
+                      <span className="inline-block px-2 py-0.5 bg-stone-100 text-stone-600 rounded-md text-xs font-medium mt-1">
+                        {suggestion.category}
+                      </span>
+                    </div>
+                    <span className="font-medium text-emerald-600 whitespace-nowrap">
+                      ~{getCurrencySymbol(selectedRegistry?.currency || 'USD')}{suggestion.estimatedPrice}
+                    </span>
+                  </div>
+                  <p className="text-sm text-stone-600 mb-3">{suggestion.description}</p>
+                  <div className="bg-indigo-50/50 p-3 rounded-lg text-xs text-indigo-700 mb-4 flex gap-2 items-start">
+                    <span className="shrink-0 mt-0.5">💡</span>
+                    <p>{suggestion.reason}</p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    className="w-full text-sm py-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    onClick={async () => {
+                      if (!user || !selectedRegistry) return;
+                      try {
+                        await addDoc(collection(db, 'items'), {
+                          registryId: selectedRegistry.id,
+                          name: suggestion.name,
+                          description: suggestion.description,
+                          price: suggestion.estimatedPrice,
+                          quantity: 1,
+                          url: '',
+                          imageUrl: null,
+                          category: suggestion.category,
+                          status: 'available',
+                          addedBy: user.uid,
+                          createdAt: serverTimestamp(),
+                          isGroupGifting: false,
+                          amountContributed: 0,
+                          contributions: [],
+                          quantityClaimed: 0,
+                          quantityReserved: 0,
+                          claims: []
+                        });
+                        toast.success(`Added ${suggestion.name} to registry`);
+                        // Remove from suggestions
+                        setAiSuggestions(prev => prev.filter((_, i) => i !== index));
+                      } catch (error) {
+                        handleFirestoreError(error, OperationType.CREATE, 'items');
+                      }
+                    }}
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    Add to Registry
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-stone-500">
+              <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+              <p>Your registry looks great! We couldn't find any major gaps.</p>
+            </div>
+          )}
+        </div>
       </Modal>
 
       <Modal 
