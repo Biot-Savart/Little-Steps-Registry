@@ -4,6 +4,7 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
+import { Toaster } from 'react-hot-toast';
 
 // Register service worker for PWA
 registerSW({
@@ -20,6 +21,7 @@ registerSW({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
+      <Toaster position="top-right" />
       <App />
     </ErrorBoundary>
   </StrictMode>,

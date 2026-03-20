@@ -67,6 +67,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { toast } from 'react-hot-toast';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -409,12 +410,34 @@ export default function App() {
           if (change.type === 'added') {
             const data = change.doc.data() as AppNotification;
             if (!data.read) {
+              const title = `Registry Update!`;
+              const body = `${data.guestName} has ${data.type === 'claim' ? 'claimed' : data.type === 'reserve' ? 'reserved' : 'contributed to'} ${data.itemName}.`;
+              const options = {
+                body,
+                icon: '/pwa-192x192.png'
+              };
+
+              // Always show in-app toast notification
+              toast(body, {
+                icon: '🔔',
+                duration: 5000,
+              });
+
               // Trigger Browser Notification
               if (Notification.permission === 'granted') {
-                new Notification(`Registry Update!`, {
-                  body: `${data.guestName} has ${data.type === 'claim' ? 'claimed' : data.type === 'reserve' ? 'reserved' : 'contributed to'} ${data.itemName}.`,
-                  icon: '/favicon.ico'
-                });
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistration().then(registration => {
+                    if (registration) {
+                      registration.showNotification(title, options);
+                    } else {
+                      new Notification(title, options);
+                    }
+                  }).catch(() => {
+                    new Notification(title, options);
+                  });
+                } else {
+                  new Notification(title, options);
+                }
               }
             }
           }
