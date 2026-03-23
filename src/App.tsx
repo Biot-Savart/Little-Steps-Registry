@@ -985,7 +985,8 @@ export default function App() {
     setIsAILoading(true);
     setAiError(null);
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
+      // Use process.env for AI Studio, and import.meta.env for external Vite deployments
+      const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
       if (!apiKey) {
         throw new Error("Gemini API key is not configured.");
       }
@@ -1001,7 +1002,7 @@ export default function App() {
         ${currentItemsList || "No items yet."}
         
         Based on the current items, the due date (consider the season), and the hemisphere, what are 5 to 8 essential items that are missing from this registry?
-        Provide practical, specific recommendations.
+        Provide practical, specific recommendations. Ensure all estimated prices are in South African Rands (ZAR).
       `;
 
       const response = await ai.models.generateContent({
@@ -1017,7 +1018,7 @@ export default function App() {
                 name: { type: Type.STRING, description: "Name of the product" },
                 category: { type: Type.STRING, description: "Category (e.g., Gear, Feeding, Clothing, Nursery, Toys, Health, Diapering)" },
                 description: { type: Type.STRING, description: "Short description of the item" },
-                estimatedPrice: { type: Type.NUMBER, description: "Estimated price in USD" },
+                estimatedPrice: { type: Type.NUMBER, description: "Estimated price in South African Rands (ZAR)" },
                 reason: { type: Type.STRING, description: "Why this is recommended based on the registry gaps, due date, or season" }
               },
               required: ["name", "category", "description", "estimatedPrice", "reason"]

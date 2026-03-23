@@ -3,103 +3,13 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { Resend } from 'resend';
+import { GoogleGenAI, Type } from '@google/genai';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
-
-  // Initialize Resend lazily
-  let resend: Resend | null = null;
-  const getResend = () => {
-    if (!resend && process.env.RESEND_API_KEY) {
-      resend = new Resend(process.env.RESEND_API_KEY);
-    }
-    return resend;
-  };
-
-  // API Route to send email notifications
-  app.post("/api/notify", async (req, res) => {
-    const { to, subject, html } = req.body;
-
-    if (!to || !subject || !html) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    const resendClient = getResend();
-
-    if (!resendClient) {
-      console.log("RESEND_API_KEY not configured. Logging email instead:");
-      console.log(`To: ${to}`);
-      console.log(`Subject: ${subject}`);
-      console.log(`Content: ${html}`);
-      return res.json({ success: true, message: "Email logged to console (API key missing)" });
-    }
-
-    try {
-      const { data, error } = await resendClient.emails.send({
-        from: 'Little Steps Registry <onboarding@resend.dev>',
-        to: to,
-        subject: subject,
-        html: html,
-      });
-
-      if (error) {
-        console.error("Resend error:", error);
-        let errorMessage = error.message;
-        
-        // If it's a validation error, it's likely because they're sending to a non-verified email on the free tier
-        if (error.name === 'validation_error') {
-          errorMessage = `Resend Validation Error: ${error.message}. To send to any recipient, you must verify a custom domain in your Resend dashboard (resend.com/domains).`;
-        }
-        
-        return res.status(400).json({ error: errorMessage, details: error });
-      }
-
-      res.json({ success: true, data });
-    } catch (error: any) {
-      console.error("Error sending email:", error);
-      res.status(500).json({ error: error.message || "Failed to send email" });
-    }
-  });
-
-  // API Route to search images using Google Custom Search
-  app.get("/api/search-images", async (req, res) => {
-    const query = req.query.q as string;
-    if (!query) {
-      return res.status(400).json({ error: "Query is required" });
-    }
-
-    const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-    const cx = process.env.GOOGLE_SEARCH_CX;
-
-    if (!apiKey || !cx) {
-      return res.status(501).json({ 
-        error: "Google Search API keys are not configured. Please add GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_CX in the app settings.",
-        needsConfig: true 
-      });
-    }
-
-    try {
-      const response = await axios.get(`https://www.googleapis.com/customsearch/v1`, {
-        params: {
-          q: query,
-          cx: cx,
-          key: apiKey,
-          searchType: 'image',
-          num: 10
-        }
-      });
-
-      const images = response.data.items?.map((item: any) => item.link) || [];
-      res.json({ images });
-    } catch (error: any) {
-      console.error("Google Image Search error:", error.response?.data || error.message);
-      res.status(500).json({ error: "Failed to fetch images from Google." });
-    }
-  });
 
   // API Route to fetch metadata from a URL
   app.get("/api/metadata", async (req, res) => {
@@ -286,6 +196,68 @@ async function startServer() {
     } catch (error) {
       console.error("Error fetching metadata:", error);
       res.status(500).json({ error: "Failed to fetch metadata" });
+    }
+  });
+
+  // API Route for AI Recommendations
+  app.post("/api/recommendations", async (req, res) => {
+    const { dueDate, hemisphere, itemsList } = req.body;
+
+    if (!dueDate || !hemisphere) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Gemini API key is not configured on the server." });
+    }
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const prompt = `
+        You are an expert baby registry consultant.
+        Here is a baby registry for a baby due on ${dueDate} in the ${hemisphere} hemisphere.
+        
+        Current items in the registry:
+        ${itemsList || "No items yet."}
+        
+        Based on the current items, the due date (consider the season), and the hemisphere, what are 5 to 8 essential items that are missing from this registry?
+        Provide practical, specific recommendations.
+      `;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: "Name of the product" },
+                category: { type: Type.STRING, description: "Category (e.g., Gear, Feeding, Clothing, Nursery, Toys, Health, Diapering)" },
+                description: { type: Type.STRING, description: "Short description of the item" },
+                estimatedPrice: { type: Type.NUMBER, description: "Estimated price in USD" },
+                reason: { type: Type.STRING, description: "Why this is recommended based on the registry gaps, due date, or season" }
+              },
+              required: ["name", "category", "description", "estimatedPrice", "reason"]
+            }
+          }
+        }
+      });
+
+      const text = response.text;
+      if (text) {
+        const parsed = JSON.parse(text);
+        res.json({ suggestions: parsed });
+      } else {
+        throw new Error("No response from AI.");
+      }
+    } catch (error: any) {
+      console.error("AI Recommendation Error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate recommendations." });
     }
   });
 
