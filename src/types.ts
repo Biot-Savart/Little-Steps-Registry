@@ -19,6 +19,14 @@ export interface Registry {
   hemisphere?: 'northern' | 'southern';
 }
 
+export interface GuestBookEntry {
+  id: string;
+  registryId: string;
+  authorName: string;
+  message: string;
+  createdAt: any;
+}
+
 export interface RegistryItem {
   id: string;
   registryId: string;

@@ -76,6 +76,18 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "type", "message", "createdAt"]
+    },
+    "GuestBookEntry": {
+      "title": "GuestBookEntry",
+      "description": "A message left in the registry guest book",
+      "type": "object",
+      "properties": {
+        "registryId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["registryId", "authorName", "message", "createdAt"]
     }
   },
   "firestore": {
@@ -86,6 +98,10 @@
     "/registries/{registryId}": {
       "schema": "Registry",
       "description": "Baby registries"
+    },
+    "/registries/{registryId}/guestbook/{entryId}": {
+      "schema": "GuestBookEntry",
+      "description": "Guest book entries for a registry"
     },
     "/items/{itemId}": {
       "schema": "RegistryItem",

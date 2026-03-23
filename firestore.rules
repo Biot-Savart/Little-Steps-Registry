@@ -125,6 +125,14 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidGuestBookEntry(data) {
+      return hasOnlyAllowedFields(['registryId', 'authorName', 'message', 'createdAt']) &&
+             data.registryId is string && data.registryId.size() > 0 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
+             data.message is string && data.message.size() > 0 && data.message.size() < 2000 &&
+             data.createdAt is timestamp;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -153,6 +161,17 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidRegistry(request.resource.data) && request.resource.data.ownerId == request.auth.uid;
       allow update: if isAuthenticated() && (isOwner(resource.data.ownerId) || (request.auth.token.email in resource.data.get('coOwnerEmails', [])) || isAdmin()) && isValidRegistry(request.resource.data) && request.resource.data.ownerId == resource.data.ownerId;
       allow delete: if isAuthenticated() && (isOwner(resource.data.ownerId) || isAdmin());
+      
+      match /guestbook/{entryId} {
+        allow read: if true;
+        allow create: if isAuthenticated() && isValidGuestBookEntry(request.resource.data) && request.resource.data.registryId == registryId;
+        allow update: if false; // Guestbook entries are immutable
+        allow delete: if isAuthenticated() && (
+          get(/databases/$(database)/documents/registries/$(registryId)).data.ownerId == request.auth.uid ||
+          request.auth.token.email in get(/databases/$(database)/documents/registries/$(registryId)).data.get('coOwnerEmails', []) ||
+          isAdmin()
+        );
+      }
     }
 
     match /items/{itemId} {

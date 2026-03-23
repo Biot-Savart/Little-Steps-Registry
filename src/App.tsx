@@ -62,7 +62,8 @@ import {
   Shirt,
   Utensils,
   Moon,
-  Gamepad2
+  Gamepad2,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -261,6 +262,12 @@ export default function App() {
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [isContributeModalOpen, setIsContributeModalOpen] = useState(false);
   const [isThankYouTrackerOpen, setIsThankYouTrackerOpen] = useState(false);
+  const [isAIGeneratorOpen, setIsAIGeneratorOpen] = useState(false);
+  const [aiGeneratorEntry, setAiGeneratorEntry] = useState<ThankYouEntry | null>(null);
+  const [aiGeneratorTone, setAiGeneratorTone] = useState('Heartfelt');
+  const [aiGeneratorDetails, setAiGeneratorDetails] = useState('');
+  const [generatedNote, setGeneratedNote] = useState('');
+  const [isGeneratingNote, setIsGeneratingNote] = useState(false);
   const [isManageOwnersModalOpen, setIsManageOwnersModalOpen] = useState(false);
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [claimingItem, setClaimingItem] = useState<RegistryItem | null>(null);
@@ -1042,6 +1049,46 @@ export default function App() {
     }
   };
 
+  const generateThankYouNote = async () => {
+    if (!aiGeneratorEntry || !selectedRegistry) return;
+    
+    setIsGeneratingNote(true);
+    setAiError(null);
+    
+    try {
+      const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key is not configured.");
+      }
+      
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const prompt = `
+        Write a thank you note for a baby registry gift.
+        Recipient (Gifter) Name: ${aiGeneratorEntry.gifterName || 'Friend'}
+        Gift Item: ${aiGeneratorEntry.itemName}
+        Sender Name: ${userProfile?.displayName || 'The Parents'}
+        Baby Name (if applicable): ${selectedRegistry.babyName || 'our baby'}
+        Tone: ${aiGeneratorTone}
+        Additional Details to include: ${aiGeneratorDetails || 'None'}
+        
+        Keep it concise, warm, and natural. Do not include subject lines or placeholder brackets. Just the note body.
+      `;
+      
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+      });
+      
+      setGeneratedNote(response.text || '');
+    } catch (error: any) {
+      console.error('Error generating note:', error);
+      setAiError(error.message || 'Failed to generate note.');
+    } finally {
+      setIsGeneratingNote(false);
+    }
+  };
+
   const editItem = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user || !editingItem) return;
@@ -1600,33 +1647,35 @@ export default function App() {
             animate={{ opacity: 1 }}
           >
             {/* Registry Detail View */}
-            <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-              <div>
+            <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div className="flex-1">
                 <button 
                   onClick={() => setSelectedRegistry(null)}
-                  className="text-stone-400 hover:text-stone-600 mb-4 flex items-center gap-1 text-sm font-medium transition-colors"
+                  className="text-stone-400 hover:text-stone-600 mb-2 flex items-center gap-1 text-sm font-medium transition-colors"
                 >
                   <ChevronRight className="w-4 h-4 rotate-180" />
                   Back to all registries
                 </button>
-                <h2 className="text-3xl font-bold text-stone-900">{selectedRegistry.babyName}'s Registry</h2>
-                <p className="text-stone-500 mt-1">{selectedRegistry.description}</p>
+                <h2 className="text-3xl md:text-4xl font-bold text-stone-900 tracking-tight">{selectedRegistry.babyName}'s Registry</h2>
+                {selectedRegistry.description && (
+                  <p className="text-stone-500 mt-1 text-sm md:text-base">{selectedRegistry.description}</p>
+                )}
                 {selectedRegistry.welcomeMessage && (
-                  <div className="mt-4 p-4 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 text-sm">
+                  <div className="mt-3 p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 text-sm">
                     {selectedRegistry.welcomeMessage}
                   </div>
                 )}
                 
                 {/* Progress Tracker */}
                 {items.length > 0 && (
-                  <div className="mt-6 max-w-md">
-                    <div className="flex justify-between items-end mb-2">
-                      <span className="text-sm font-bold text-stone-700">Registry Progress</span>
+                  <div className="mt-4 max-w-md">
+                    <div className="flex justify-between items-end mb-1.5">
+                      <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Registry Progress</span>
                       <span className="text-xs font-medium text-stone-500">
                         {items.reduce((acc, item) => acc + (item.status === 'claimed' ? item.quantity : (item.quantityClaimed || 0)), 0)} of {items.reduce((acc, item) => acc + item.quantity, 0)} items claimed
                       </span>
                     </div>
-                    <div className="h-3 w-full bg-stone-100 rounded-full overflow-hidden border border-stone-200/50">
+                    <div className="h-2 w-full bg-stone-100 rounded-full overflow-hidden border border-stone-200/50">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${items.reduce((acc, item) => acc + item.quantity, 0) > 0 ? Math.round((items.reduce((acc, item) => acc + (item.status === 'claimed' ? item.quantity : (item.quantityClaimed || 0)), 0) / items.reduce((acc, item) => acc + item.quantity, 0)) * 100) : 0}%` }}
@@ -1637,30 +1686,24 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {selectedRegistry.dueDate && (
-                  <Button variant="outline" onClick={() => setIsSizeGuideModalOpen(true)} title="Size Guide">
-                    <Ruler className="w-4 h-4 mr-2" />
-                    Size Guide
-                  </Button>
-                )}
-                <Button variant="outline" onClick={handleShare} title="Share Registry">
+              <div className="flex items-center gap-2 flex-wrap w-full md:w-auto mt-2 md:mt-0">
+                <Button onClick={handleShare} title="Share Registry" className="flex-1 md:flex-none">
                   <Share2 className="w-4 h-4 mr-2" />
                   Share
                 </Button>
                 {isOwner && (
                   <>
-                    <Button variant="outline" onClick={() => setIsThankYouTrackerOpen(!isThankYouTrackerOpen)} title="Thank You Tracker">
-                      <CheckCircle className="w-4 h-4 mr-2" />
-                      {isThankYouTrackerOpen ? 'Back to Registry' : 'Thank You Tracker'}
+                    <Button variant="outline" onClick={() => setIsThankYouTrackerOpen(!isThankYouTrackerOpen)} title="Thank You Tracker" className="flex-1 md:flex-none">
+                      <CheckCircle className="w-4 h-4 md:mr-2" />
+                      <span className="hidden md:inline">{isThankYouTrackerOpen ? 'Back to Registry' : 'Thank You Tracker'}</span>
                     </Button>
-                    <Button variant="outline" onClick={() => setIsManageOwnersModalOpen(true)} title="Manage Owners">
-                      <Users className="w-4 h-4 mr-2" />
-                      Owners
+                    <Button variant="outline" onClick={() => setIsManageOwnersModalOpen(true)} title="Manage Owners" className="flex-1 md:flex-none">
+                      <Users className="w-4 h-4 md:mr-2" />
+                      <span className="hidden md:inline">Owners</span>
                     </Button>
-                    <Button variant="outline" onClick={() => setIsSettingsModalOpen(true)} title="Registry Settings">
-                      <Settings className="w-4 h-4 mr-2" />
-                      Settings
+                    <Button variant="outline" onClick={() => setIsSettingsModalOpen(true)} title="Registry Settings" className="flex-1 md:flex-none">
+                      <Settings className="w-4 h-4 md:mr-2" />
+                      <span className="hidden md:inline">Settings</span>
                     </Button>
                   </>
                 )}
@@ -1721,20 +1764,35 @@ export default function App() {
                               )}
                             </div>
                           </div>
-                          <Button 
-                            variant={entry.thankYouSent ? "outline" : "primary"}
-                            onClick={() => toggleThankYouSent(entry)}
-                            className="sm:w-auto w-full"
-                          >
-                            {entry.thankYouSent ? (
-                              <>
-                                <CheckCircle className="w-4 h-4 mr-2" />
-                                Sent
-                              </>
-                            ) : (
-                              'Mark as Sent'
-                            )}
-                          </Button>
+                          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto mt-4 sm:mt-0">
+                            <Button 
+                              variant="outline"
+                              onClick={() => {
+                                setAiGeneratorEntry(entry);
+                                setIsAIGeneratorOpen(true);
+                                setGeneratedNote('');
+                                setAiGeneratorDetails('');
+                              }}
+                              className="sm:w-auto w-full"
+                            >
+                              <Sparkles className="w-4 h-4 mr-2 text-indigo-500" />
+                              Generate Note
+                            </Button>
+                            <Button 
+                              variant={entry.thankYouSent ? "outline" : "primary"}
+                              onClick={() => toggleThankYouSent(entry)}
+                              className="sm:w-auto w-full"
+                            >
+                              {entry.thankYouSent ? (
+                                <>
+                                  <CheckCircle className="w-4 h-4 mr-2" />
+                                  Sent
+                                </>
+                              ) : (
+                                'Mark as Sent'
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       ))
                   )}
@@ -1742,15 +1800,38 @@ export default function App() {
               </motion.div>
             ) : (
               <>
+                {/* Prominent Size Guide Banner */}
+                {selectedRegistry.dueDate && (
+                  <div 
+                    onClick={() => setIsSizeGuideModalOpen(true)}
+                    className="mb-6 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100/50 rounded-2xl p-4 sm:p-5 flex items-center justify-between cursor-pointer hover:shadow-md hover:from-indigo-100/80 hover:to-blue-100/80 transition-all group"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="bg-white p-2.5 sm:p-3 rounded-xl shadow-sm text-indigo-600 group-hover:scale-110 transition-transform">
+                        <Ruler className="w-5 h-5 sm:w-6 sm:h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm sm:text-base font-bold text-indigo-900">Not sure what size to buy?</h3>
+                        <p className="text-xs sm:text-sm text-indigo-700/80 mt-0.5">View our seasonal baby clothing size guide based on the due date</p>
+                      </div>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-2 text-indigo-600 font-medium text-sm bg-white/60 px-3 py-1.5 rounded-lg group-hover:bg-white transition-colors">
+                      View Guide
+                      <ChevronRight className="w-4 h-4" />
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-indigo-400 sm:hidden" />
+                  </div>
+                )}
+
                 {/* Filter and Sort */}
                 <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex overflow-x-auto pb-2 -mb-2 hide-scrollbar gap-1.5 w-full lg:w-auto">
                     {['All', 'Gear', 'Clothing', 'Feeding', 'Nursery', 'Toys', 'Other'].map((cat) => (
                       <button
                         key={cat}
                         onClick={() => setFilterCategory(cat)}
                         className={cn(
-                          "px-3 py-1.5 rounded-xl text-xs font-medium transition-all",
+                          "px-3 py-1.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap",
                           filterCategory === cat 
                             ? "bg-emerald-600 text-white shadow-md shadow-emerald-100" 
                             : "bg-white text-stone-600 border border-stone-100 hover:bg-stone-50"
@@ -1761,61 +1842,62 @@ export default function App() {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
-                      <button
-                        onClick={() => setViewMode('grid')}
-                        className={cn(
-                          "p-1.5 rounded-lg transition-all",
-                          viewMode === 'grid' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
-                        )}
-                        title="Grid View"
-                      >
-                        <LayoutGrid className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setViewMode('list')}
-                        className={cn(
-                          "p-1.5 rounded-lg transition-all",
-                          viewMode === 'list' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
-                        )}
-                        title="List View"
-                      >
-                        <List className="w-4 h-4" />
-                      </button>
-                    </div>
+                  <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto justify-between lg:justify-end">
+                    <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-stone-100 shadow-sm flex-1 sm:flex-none justify-center">
+                      <div className="flex border-r border-stone-100 pr-1.5">
+                        <button
+                          onClick={() => setViewMode('grid')}
+                          className={cn(
+                            "p-1.5 rounded-lg transition-all",
+                            viewMode === 'grid' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
+                          )}
+                          title="Grid View"
+                        >
+                          <LayoutGrid className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setViewMode('list')}
+                          className={cn(
+                            "p-1.5 rounded-lg transition-all",
+                            viewMode === 'list' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
+                          )}
+                          title="List View"
+                        >
+                          <List className="w-4 h-4" />
+                        </button>
+                      </div>
 
-                    <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
-                      <label className="flex items-center gap-2 px-2 py-1 cursor-pointer">
+                      <label className="flex items-center gap-1.5 px-1.5 cursor-pointer border-r border-stone-100 pr-2">
                         <input 
                           type="checkbox" 
                           checked={hideClaimed}
                           onChange={(e) => setHideClaimed(e.target.checked)}
                           className="rounded text-emerald-600 focus:ring-emerald-500"
                         />
-                        <span className="text-xs font-medium text-stone-600">Hide Claimed</span>
+                        <span className="text-xs font-medium text-stone-600 hidden sm:inline">Hide Claimed</span>
+                        <span className="text-xs font-medium text-stone-600 sm:hidden">Hide</span>
                       </label>
-                    </div>
 
-                    <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-stone-100 shadow-sm">
-                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider ml-2 mr-1">Sort:</span>
-                      <select 
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value as any)}
-                        className="bg-transparent text-xs font-medium text-stone-600 outline-none pr-2 py-1 cursor-pointer"
-                      >
-                        <option value="date">Date Added</option>
-                        <option value="name">Name</option>
-                        <option value="price-asc">Price: Low to High</option>
-                        <option value="price-desc">Price: High to Low</option>
-                      </select>
+                      <div className="flex items-center pl-1">
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mr-1 hidden sm:inline">Sort:</span>
+                        <select 
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as any)}
+                          className="bg-transparent text-xs font-medium text-stone-600 outline-none pr-1 py-1 cursor-pointer"
+                        >
+                          <option value="date">Date Added</option>
+                          <option value="name">Name</option>
+                          <option value="price-asc">Price: Low to High</option>
+                          <option value="price-desc">Price: High to Low</option>
+                        </select>
+                      </div>
                     </div>
 
                     {isOwner && (
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 w-full sm:w-auto">
                         <Button 
                           variant="outline"
-                          className="rounded-xl px-4 py-2 text-xs h-auto bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100"
+                          className="rounded-xl px-3 py-2 text-xs h-auto bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100 flex-1 sm:flex-none"
                           onClick={() => {
                             setIsAIRecommenderOpen(true);
                             if (aiSuggestions.length === 0) {
@@ -1824,25 +1906,27 @@ export default function App() {
                           }}
                         >
                           <span className="mr-1.5">✨</span>
-                          Smart Recommender
+                          <span className="hidden sm:inline">Smart Recommender</span>
+                          <span className="sm:hidden">AI Ideas</span>
                         </Button>
                         <Button 
                           variant="outline"
-                          className="rounded-xl px-4 py-2 text-xs h-auto"
+                          className="rounded-xl px-3 py-2 text-xs h-auto flex-1 sm:flex-none"
                           onClick={() => setIsBatchAddModalOpen(true)}
                         >
-                          <List className="w-4 h-4 mr-1.5" />
-                          Batch Add
+                          <List className="w-4 h-4 sm:mr-1.5" />
+                          <span className="hidden sm:inline">Batch Add</span>
                         </Button>
                         <Button 
-                          className="rounded-xl px-4 py-2 text-xs h-auto"
+                          className="rounded-xl px-3 py-2 text-xs h-auto flex-1 sm:flex-none"
                           onClick={() => {
                             setFetchMetadataError(null);
                             setIsAddItemModalOpen(true);
                           }}
                         >
-                          <Plus className="w-4 h-4 mr-1.5" />
-                          Add Item
+                          <Plus className="w-4 h-4 sm:mr-1.5" />
+                          <span className="hidden sm:inline">Add Item</span>
+                          <span className="sm:hidden">Add</span>
                         </Button>
                       </div>
                     )}
@@ -2515,6 +2599,94 @@ export default function App() {
             <div className="text-center py-8 text-stone-500">
               <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
               <p>Your registry looks great! We couldn't find any major gaps.</p>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal 
+        isOpen={isAIGeneratorOpen} 
+        onClose={() => setIsAIGeneratorOpen(false)} 
+        title="✨ AI Thank You Note Generator"
+      >
+        <div className="space-y-6">
+          <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl text-sm leading-relaxed">
+            <p className="font-medium mb-1">Generate a personalized note</p>
+            <p>Let AI help you write a thoughtful thank you note for {aiGeneratorEntry?.itemName}.</p>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Tone</label>
+              <select 
+                value={aiGeneratorTone}
+                onChange={(e) => setAiGeneratorTone(e.target.value)}
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+              >
+                <option value="Heartfelt">Heartfelt</option>
+                <option value="Casual">Casual</option>
+                <option value="Professional">Professional</option>
+                <option value="Funny">Funny</option>
+                <option value="Short and Sweet">Short and Sweet</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">Additional Details (Optional)</label>
+              <textarea 
+                value={aiGeneratorDetails}
+                onChange={(e) => setAiGeneratorDetails(e.target.value)}
+                placeholder="e.g., Mention how much we love the color, or that we plan to use it right away."
+                rows={3}
+                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all custom-scrollbar"
+              />
+            </div>
+
+            <Button 
+              onClick={generateThankYouNote} 
+              disabled={isGeneratingNote}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              {isGeneratingNote ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate Note
+                </>
+              )}
+            </Button>
+          </div>
+
+          {aiError && (
+            <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-sm">
+              <p className="font-medium mb-1">Error</p>
+              <p>{aiError}</p>
+            </div>
+          )}
+
+          {generatedNote && (
+            <div className="mt-6 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-stone-900">Generated Note</h4>
+                <Button 
+                  variant="ghost" 
+                  className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-3 py-1.5 h-auto text-xs"
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedNote);
+                    toast.success('Copied to clipboard!');
+                  }}
+                >
+                  <Copy className="w-3.5 h-3.5 mr-1.5" />
+                  Copy
+                </Button>
+              </div>
+              <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 text-stone-700 text-sm whitespace-pre-wrap">
+                {generatedNote}
+              </div>
             </div>
           )}
         </div>
