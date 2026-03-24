@@ -62,6 +62,7 @@ import {
   Shirt,
   Utensils,
   Moon,
+  Sun,
   Gamepad2,
   Sparkles
 } from 'lucide-react';
@@ -80,11 +81,11 @@ function cn(...inputs: ClassValue[]) {
 const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' }>(
   ({ className, variant = 'primary', ...props }, ref) => {
     const variants = {
-      primary: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
-      secondary: 'bg-stone-800 text-white hover:bg-stone-900',
-      outline: 'border border-stone-200 bg-transparent hover:bg-stone-50 text-stone-700',
-      ghost: 'bg-transparent hover:bg-stone-100 text-stone-600',
-      danger: 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-100',
+      primary: 'bg-emerald-600 dark:bg-emerald-500 text-white hover:bg-emerald-700 dark:hover:bg-emerald-600 shadow-sm',
+      secondary: 'bg-stone-800 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-900 dark:hover:bg-stone-50',
+      outline: 'border border-stone-200 dark:border-stone-700 bg-transparent hover:bg-stone-50 dark:hover:bg-stone-900/50 text-stone-700 dark:text-stone-300',
+      ghost: 'bg-transparent hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-400',
+      danger: 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 border border-rose-100 dark:border-rose-800',
     };
     return (
       <button
@@ -101,7 +102,7 @@ const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HT
 );
 
 const Card = ({ children, className }: { children: React.ReactNode; className?: string }) => (
-  <div className={cn('bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden', className)}>
+  <div className={cn('bg-white dark:bg-stone-900 rounded-2xl border border-stone-100 dark:border-stone-800 shadow-sm overflow-hidden', className)}>
     {children}
   </div>
 );
@@ -114,11 +115,11 @@ const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean; onClose:
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]"
+          className="bg-white dark:bg-stone-900 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]"
         >
-          <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center shrink-0">
-            <h3 className="text-lg font-semibold text-stone-900">{title}</h3>
-            <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-600 transition-colors">
+          <div className="px-6 py-4 border-b border-stone-100 dark:border-stone-800 flex justify-between items-center shrink-0">
+            <h3 className="text-lg font-semibold text-stone-900 dark:text-stone-50">{title}</h3>
+            <button type="button" onClick={onClose} className="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 transition-colors">
               <Plus className="w-6 h-6 rotate-45" />
             </button>
           </div>
@@ -137,7 +138,7 @@ const CategoryPlaceholder = ({ category, name, className }: { category?: string,
       case 'Feeding': return { Icon: Utensils, bg: 'from-orange-50 to-amber-100', text: 'text-orange-600' };
       case 'Nursery': return { Icon: Moon, bg: 'from-purple-50 to-fuchsia-100', text: 'text-purple-600' };
       case 'Toys': return { Icon: Gamepad2, bg: 'from-yellow-50 to-lime-100', text: 'text-yellow-600' };
-      default: return { Icon: Gift, bg: 'from-emerald-50 to-teal-100', text: 'text-emerald-600' };
+      default: return { Icon: Gift, bg: 'from-emerald-50 to-teal-100', text: 'text-emerald-600 dark:text-emerald-400' };
     }
   };
 
@@ -261,6 +262,12 @@ export default function App() {
   const [isSizeGuideModalOpen, setIsSizeGuideModalOpen] = useState(false);
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [isContributeModalOpen, setIsContributeModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'registry' | 'thank-you' | 'guestbook'>('registry');
+  const [guestBookEntries, setGuestBookEntries] = useState<GuestBookEntry[]>([]);
+  const [isAddGuestBookModalOpen, setIsAddGuestBookModalOpen] = useState(false);
+  const [guestBookName, setGuestBookName] = useState('');
+  const [guestBookMessage, setGuestBookMessage] = useState('');
+  const [isSubmittingGuestBook, setIsSubmittingGuestBook] = useState(false);
   const [isThankYouTrackerOpen, setIsThankYouTrackerOpen] = useState(false);
   const [isAIGeneratorOpen, setIsAIGeneratorOpen] = useState(false);
   const [aiGeneratorEntry, setAiGeneratorEntry] = useState<ThankYouEntry | null>(null);
@@ -271,12 +278,29 @@ export default function App() {
   const [isManageOwnersModalOpen, setIsManageOwnersModalOpen] = useState(false);
   const [newOwnerEmail, setNewOwnerEmail] = useState('');
   const [claimingItem, setClaimingItem] = useState<RegistryItem | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') === 'dark' ||
+        (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkMode]);
   const [contributingItem, setContributingItem] = useState<RegistryItem | null>(null);
   const [claimMode, setClaimMode] = useState<'claim' | 'reserve'>('claim');
   const [editingItem, setEditingItem] = useState<RegistryItem | null>(null);
   const [filterCategory, setFilterCategory] = useState('All');
   const [hideClaimed, setHideClaimed] = useState(false);
-  const [sortBy, setSortBy] = useState<'date' | 'name' | 'price' | 'price-asc' | 'price-desc'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'name' | 'price' | 'price-asc' | 'price-desc' | 'must-have'>('date');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [loading, setLoading] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -540,6 +564,30 @@ export default function App() {
       setItems(itemData);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, `items (registryId: ${selectedRegistry.id})`);
+    });
+
+    return () => unsubscribe();
+  }, [selectedRegistry]);
+
+  // Fetch Guest Book Entries
+  useEffect(() => {
+    if (!selectedRegistry) {
+      setGuestBookEntries([]);
+      return;
+    }
+
+    const q = query(collection(db, 'registries', selectedRegistry.id, 'guestbook'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as GuestBookEntry));
+      // Sort by createdAt desc
+      entries.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return timeB - timeA;
+      });
+      setGuestBookEntries(entries);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `guestbook (registryId: ${selectedRegistry.id})`);
     });
 
     return () => unsubscribe();
@@ -1390,6 +1438,31 @@ export default function App() {
     }
   };
 
+  const handleGuestBookSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRegistry || !guestBookName.trim() || !guestBookMessage.trim()) return;
+
+    setIsSubmittingGuestBook(true);
+    try {
+      await addDoc(collection(db, 'registries', selectedRegistry.id, 'guestbook'), {
+        registryId: selectedRegistry.id,
+        authorName: guestBookName.trim(),
+        message: guestBookMessage.trim(),
+        createdAt: serverTimestamp(),
+        ...(user ? { authorId: user.uid } : {})
+      });
+      
+      setGuestBookName('');
+      setGuestBookMessage('');
+      setIsAddGuestBookModalOpen(false);
+      toast.success('Message added to guest book!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'guestbook');
+    } finally {
+      setIsSubmittingGuestBook(false);
+    }
+  };
+
   const handleShare = () => {
     if (!selectedRegistry) return;
     const origin = import.meta.env.VITE_PUBLIC_URL || window.location.origin;
@@ -1402,11 +1475,11 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50">
+      <div className="min-h-screen flex items-center justify-center bg-stone-50 dark:bg-stone-900/50">
         <motion.div 
           animate={{ scale: [1, 1.1, 1] }} 
           transition={{ repeat: Infinity, duration: 2 }}
-          className="text-emerald-600"
+          className="text-emerald-600 dark:text-emerald-400"
         >
           <Baby className="w-12 h-12" />
         </motion.div>
@@ -1415,38 +1488,51 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 font-sans">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-50 font-sans">
       {/* Navbar */}
-      <nav className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-stone-100">
+      <nav className="sticky top-0 z-40 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md border-b border-stone-100 dark:border-stone-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div 
               className="flex items-center gap-2 cursor-pointer" 
               onClick={() => setSelectedRegistry(null)}
             >
-              <div className="bg-emerald-100 p-2 rounded-xl">
-                <Baby className="w-6 h-6 text-emerald-600" />
+              <div className="bg-emerald-100 dark:bg-emerald-900/50 p-2 rounded-xl">
+                <Baby className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <span className="font-bold text-xl tracking-tight text-stone-800">Little Steps</span>
+              <span className="font-bold text-xl tracking-tight text-stone-800 dark:text-stone-200">Little Steps</span>
             </div>
 
             <div className="flex items-center gap-4">
               {user ? (
                 <div className="flex items-center gap-3">
                   <div className="hidden sm:block text-right">
-                    <p className="text-sm font-medium text-stone-900">{user.displayName}</p>
-                    <p className="text-xs text-stone-500">{user.email}</p>
+                    <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{user.displayName}</p>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">{user.email}</p>
                   </div>
                   
-                  <div className="relative">
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setIsDarkMode(!isDarkMode)}
                       className="p-2 relative"
+                      title="Toggle Dark Mode"
                     >
-                      <Bell className="w-5 h-5 text-stone-600" />
+                      {isDarkMode ? (
+                        <Sun className="w-5 h-5 text-stone-600 dark:text-stone-400 dark:text-stone-400 dark:text-stone-500" />
+                      ) : (
+                        <Moon className="w-5 h-5 text-stone-600 dark:text-stone-400 dark:text-stone-400 dark:text-stone-500" />
+                      )}
+                    </Button>
+                    <div className="relative">
+                      <Button 
+                        variant="ghost" 
+                        onClick={() => setIsNotificationsOpen(!isNotificationsOpen)} 
+                        className="p-2 relative"
+                      >
+                      <Bell className="w-5 h-5 text-stone-600 dark:text-stone-400" />
                       {notifications.filter(n => !n.read).length > 0 && (
-                        <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 border-2 border-white rounded-full"></span>
+                        <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 dark:bg-rose-600 border-2 border-white dark:border-stone-900 rounded-full"></span>
                       )}
                     </Button>
                     
@@ -1456,14 +1542,14 @@ export default function App() {
                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-stone-100 overflow-hidden z-50"
+                          className="absolute right-0 mt-2 w-80 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-100 dark:border-stone-800 overflow-hidden z-50"
                         >
-                          <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50/50">
-                            <h3 className="font-bold text-stone-900">Notifications</h3>
+                          <div className="p-4 border-b border-stone-100 dark:border-stone-800 flex justify-between items-center bg-stone-50/50 dark:bg-stone-900/50">
+                            <h3 className="font-bold text-stone-900 dark:text-stone-50">Notifications</h3>
                             {notifications.length > 0 && (
                               <button 
                                 onClick={markAllNotificationsRead}
-                                className="text-xs text-emerald-600 font-medium hover:text-emerald-700"
+                                className="text-xs text-emerald-600 dark:text-emerald-400 font-medium hover:text-emerald-700 dark:text-emerald-400"
                               >
                                 Mark all as read
                               </button>
@@ -1472,42 +1558,42 @@ export default function App() {
                           <div className="max-h-96 overflow-y-auto">
                             {notifications.length === 0 ? (
                               <div className="p-8 text-center">
-                                <Bell className="w-8 h-8 text-stone-200 mx-auto mb-2" />
-                                <p className="text-sm text-stone-400 font-medium">No notifications yet</p>
+                                <Bell className="w-8 h-8 text-stone-200 dark:text-stone-700 mx-auto mb-2" />
+                                <p className="text-sm text-stone-400 dark:text-stone-500 font-medium">No notifications yet</p>
                               </div>
                             ) : (
                               notifications.map(notification => (
                                 <div 
                                   key={notification.id}
                                   className={cn(
-                                    "p-4 border-b border-stone-50 last:border-0 transition-colors cursor-pointer hover:bg-stone-50 text-left",
-                                    !notification.read && "bg-emerald-50/30"
+                                    "p-4 border-b border-stone-50 dark:border-stone-800/50 last:border-0 transition-colors cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-900/50 text-left",
+                                    !notification.read && "bg-emerald-50/30 dark:bg-emerald-900/20"
                                   )}
                                   onClick={() => markNotificationRead(notification.id)}
                                 >
                                   <div className="flex gap-3">
                                     <div className={cn(
                                       "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
-                                      notification.type === 'claim' ? "bg-emerald-100 text-emerald-600" :
-                                      notification.type === 'reserve' ? "bg-amber-100 text-amber-600" :
-                                      "bg-blue-100 text-blue-600"
+                                      notification.type === 'claim' ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400" :
+                                      notification.type === 'reserve' ? "bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400" :
+                                      "bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400"
                                     )}>
                                       {notification.type === 'claim' ? <Heart className="w-4 h-4" /> :
                                        notification.type === 'reserve' ? <Clock className="w-4 h-4" /> :
                                        <Gift className="w-4 h-4" />}
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm text-stone-900 leading-tight">
+                                      <p className="text-sm text-stone-900 dark:text-stone-50 leading-tight">
                                         <span className="font-bold">{notification.guestName}</span> {
                                           notification.type === 'claim' ? 'claimed' :
                                           notification.type === 'reserve' ? 'reserved' :
                                           'contributed to'
-                                        } <span className="font-medium text-emerald-700">{notification.itemName}</span>
+                                        } <span className="font-medium text-emerald-700 dark:text-emerald-400">{notification.itemName}</span>
                                       </p>
                                       {notification.message && (
-                                        <p className="text-xs text-stone-500 mt-1 line-clamp-2 italic">"{notification.message}"</p>
+                                        <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 line-clamp-2 italic">"{notification.message}"</p>
                                       )}
-                                      <p className="text-[10px] text-stone-400 mt-1">
+                                      <p className="text-[10px] text-stone-400 dark:text-stone-500 mt-1">
                                         {notification.createdAt?.toMillis ? new Date(notification.createdAt.toMillis()).toLocaleString() : 'Just now'}
                                       </p>
                                     </div>
@@ -1523,16 +1609,17 @@ export default function App() {
                       )}
                     </AnimatePresence>
                   </div>
+                  </div>
 
                   {user.photoURL ? (
                     <img 
                       src={user.photoURL} 
                       alt="Profile" 
-                      className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover"
+                      className="w-10 h-10 rounded-full border-2 border-white dark:border-stone-900 shadow-sm object-cover"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="w-10 h-10 rounded-full border-2 border-white shadow-sm bg-emerald-100 flex items-center justify-center text-emerald-600">
+                    <div className="w-10 h-10 rounded-full border-2 border-white dark:border-stone-900 shadow-sm bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
                       <UserIcon className="w-5 h-5" />
                     </div>
                   )}
@@ -1555,15 +1642,15 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-8 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4"
+            className="mb-8 p-4 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-100 dark:border-emerald-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4"
           >
             <div className="flex items-center gap-4">
-              <div className="bg-emerald-100 p-3 rounded-xl">
-                <Download className="w-6 h-6 text-emerald-600" />
+              <div className="bg-emerald-100 dark:bg-emerald-900/50 p-3 rounded-xl">
+                <Download className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
               </div>
               <div>
                 <h3 className="font-bold text-emerald-900">Install Little Steps Registry</h3>
-                <p className="text-sm text-emerald-700">Add this app to your home screen for quick access and offline support.</p>
+                <p className="text-sm text-emerald-700 dark:text-emerald-400">Add this app to your home screen for quick access and offline support.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -1579,10 +1666,10 @@ export default function App() {
           >
             {/* Hero */}
             <div className="text-center mb-12">
-              <h1 className="text-4xl sm:text-5xl font-bold text-stone-900 mb-4 tracking-tight">
+              <h1 className="text-4xl sm:text-5xl font-bold text-stone-900 dark:text-stone-50 mb-4 tracking-tight">
                 Welcome to Little Steps Registry
               </h1>
-              <p className="text-lg text-stone-600 max-w-2xl mx-auto">
+              <p className="text-lg text-stone-600 dark:text-stone-400 max-w-2xl mx-auto">
                 Create a beautiful gift registry for your little one and share it with friends and family.
               </p>
               {user && (
@@ -1607,27 +1694,27 @@ export default function App() {
                   <Card className="h-full hover:border-emerald-200 transition-colors">
                     <div className="p-6">
                       <div className="flex justify-between items-start mb-4">
-                        <div className="bg-stone-50 p-3 rounded-2xl">
-                          <Gift className="w-6 h-6 text-stone-400" />
+                        <div className="bg-stone-50 dark:bg-stone-900/50 p-3 rounded-2xl">
+                          <Gift className="w-6 h-6 text-stone-400 dark:text-stone-500" />
                         </div>
                         {(user?.uid === registry.ownerId || (user?.email && registry.coOwnerEmails?.includes(user.email.toLowerCase()))) && (
-                          <span className="bg-emerald-50 text-emerald-700 text-xs font-semibold px-2 py-1 rounded-lg">
+                          <span className="bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-2 py-1 rounded-lg">
                             Your Registry
                           </span>
                         )}
                       </div>
-                      <h3 className="text-xl font-bold text-stone-900 mb-2">{registry.babyName}'s Registry</h3>
-                      <p className="text-stone-500 text-sm line-clamp-2 mb-4">
+                      <h3 className="text-xl font-bold text-stone-900 dark:text-stone-50 mb-2">{registry.babyName}'s Registry</h3>
+                      <p className="text-stone-500 dark:text-stone-400 text-sm line-clamp-2 mb-4">
                         {registry.description || 'No description provided.'}
                       </p>
-                      <div className="flex items-center text-stone-400 text-sm gap-2">
+                      <div className="flex items-center text-stone-400 dark:text-stone-500 text-sm gap-2">
                         <Calendar className="w-4 h-4" />
                         <span>Due: {registry.dueDate || 'TBD'}</span>
                       </div>
                     </div>
-                    <div className="px-6 py-4 bg-stone-50 border-t border-stone-100 flex justify-between items-center">
-                      <span className="text-xs font-medium text-stone-400 uppercase tracking-wider">View Registry</span>
-                      <ChevronRight className="w-4 h-4 text-stone-300" />
+                    <div className="px-6 py-4 bg-stone-50 dark:bg-stone-900/50 border-t border-stone-100 dark:border-stone-800 flex justify-between items-center">
+                      <span className="text-xs font-medium text-stone-400 dark:text-stone-500 uppercase tracking-wider">View Registry</span>
+                      <ChevronRight className="w-4 h-4 text-stone-300 dark:text-stone-600" />
                     </div>
                   </Card>
                 </motion.div>
@@ -1635,9 +1722,9 @@ export default function App() {
             </div>
 
             {registries.length === 0 && (
-              <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
-                <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
-                <p className="text-stone-400">No registries found yet. Be the first to create one!</p>
+              <div className="text-center py-20 bg-white dark:bg-stone-900 rounded-3xl border border-dashed border-stone-200 dark:border-stone-700">
+                <Package className="w-12 h-12 text-stone-200 dark:text-stone-700 mx-auto mb-4" />
+                <p className="text-stone-400 dark:text-stone-500">No registries found yet. Be the first to create one!</p>
               </div>
             )}
           </motion.div>
@@ -1651,17 +1738,17 @@ export default function App() {
               <div className="flex-1">
                 <button 
                   onClick={() => setSelectedRegistry(null)}
-                  className="text-stone-400 hover:text-stone-600 mb-2 flex items-center gap-1 text-sm font-medium transition-colors"
+                  className="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 mb-2 flex items-center gap-1 text-sm font-medium transition-colors"
                 >
                   <ChevronRight className="w-4 h-4 rotate-180" />
                   Back to all registries
                 </button>
-                <h2 className="text-3xl md:text-4xl font-bold text-stone-900 tracking-tight">{selectedRegistry.babyName}'s Registry</h2>
+                <h2 className="text-3xl md:text-4xl font-bold text-stone-900 dark:text-stone-50 tracking-tight">{selectedRegistry.babyName}'s Registry</h2>
                 {selectedRegistry.description && (
-                  <p className="text-stone-500 mt-1 text-sm md:text-base">{selectedRegistry.description}</p>
+                  <p className="text-stone-500 dark:text-stone-400 mt-1 text-sm md:text-base">{selectedRegistry.description}</p>
                 )}
                 {selectedRegistry.welcomeMessage && (
-                  <div className="mt-3 p-3 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-100 text-sm">
+                  <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 rounded-xl border border-emerald-100 dark:border-emerald-800 text-sm">
                     {selectedRegistry.welcomeMessage}
                   </div>
                 )}
@@ -1670,12 +1757,12 @@ export default function App() {
                 {items.length > 0 && (
                   <div className="mt-4 max-w-md">
                     <div className="flex justify-between items-end mb-1.5">
-                      <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">Registry Progress</span>
-                      <span className="text-xs font-medium text-stone-500">
+                      <span className="text-[10px] font-bold text-stone-500 dark:text-stone-400 uppercase tracking-wider">Registry Progress</span>
+                      <span className="text-xs font-medium text-stone-500 dark:text-stone-400">
                         {items.reduce((acc, item) => acc + (item.status === 'claimed' ? item.quantity : (item.quantityClaimed || 0)), 0)} of {items.reduce((acc, item) => acc + item.quantity, 0)} items claimed
                       </span>
                     </div>
-                    <div className="h-2 w-full bg-stone-100 rounded-full overflow-hidden border border-stone-200/50">
+                    <div className="h-2 w-full bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden border border-stone-200 dark:border-stone-700/50">
                       <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${items.reduce((acc, item) => acc + item.quantity, 0) > 0 ? Math.round((items.reduce((acc, item) => acc + (item.status === 'claimed' ? item.quantity : (item.quantityClaimed || 0)), 0) / items.reduce((acc, item) => acc + item.quantity, 0)) * 100) : 0}%` }}
@@ -1693,10 +1780,6 @@ export default function App() {
                 </Button>
                 {isOwner && (
                   <>
-                    <Button variant="outline" onClick={() => setIsThankYouTrackerOpen(!isThankYouTrackerOpen)} title="Thank You Tracker" className="flex-1 md:flex-none">
-                      <CheckCircle className="w-4 h-4 md:mr-2" />
-                      <span className="hidden md:inline">{isThankYouTrackerOpen ? 'Back to Registry' : 'Thank You Tracker'}</span>
-                    </Button>
                     <Button variant="outline" onClick={() => setIsManageOwnersModalOpen(true)} title="Manage Owners" className="flex-1 md:flex-none">
                       <Users className="w-4 h-4 md:mr-2" />
                       <span className="hidden md:inline">Owners</span>
@@ -1710,30 +1793,72 @@ export default function App() {
               </div>
             </div>
 
-            {isThankYouTrackerOpen ? (
+            {/* Tabs */}
+            <div className="flex overflow-x-auto hide-scrollbar border-b border-stone-200 dark:border-stone-700 mb-6 gap-6">
+              <button
+                onClick={() => setActiveTab('registry')}
+                className={cn(
+                  "pb-3 text-sm font-medium transition-colors relative whitespace-nowrap",
+                  activeTab === 'registry' ? "text-emerald-600 dark:text-emerald-400" : "text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
+                )}
+              >
+                Registry Items
+                {activeTab === 'registry' && (
+                  <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 rounded-t-full" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('guestbook')}
+                className={cn(
+                  "pb-3 text-sm font-medium transition-colors relative whitespace-nowrap",
+                  activeTab === 'guestbook' ? "text-emerald-600 dark:text-emerald-400" : "text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
+                )}
+              >
+                Guest Book
+                {activeTab === 'guestbook' && (
+                  <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 rounded-t-full" />
+                )}
+              </button>
+              {isOwner && (
+                <button
+                  onClick={() => setActiveTab('thank-you')}
+                  className={cn(
+                    "pb-3 text-sm font-medium transition-colors relative whitespace-nowrap",
+                    activeTab === 'thank-you' ? "text-emerald-600 dark:text-emerald-400" : "text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
+                  )}
+                >
+                  Thank You Tracker
+                  {activeTab === 'thank-you' && (
+                    <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 rounded-t-full" />
+                  )}
+                </button>
+              )}
+            </div>
+
+            {activeTab === 'thank-you' && isOwner ? (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-3xl border border-stone-100 p-8 shadow-sm"
+                className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-100 dark:border-stone-800 p-8 shadow-sm"
               >
                 <div className="flex items-center justify-between mb-8">
                   <div>
-                    <h3 className="text-2xl font-bold text-stone-900">Thank You Note Tracker</h3>
-                    <p className="text-stone-500">Keep track of who you've thanked for their generous gifts.</p>
+                    <h3 className="text-2xl font-bold text-stone-900 dark:text-stone-50">Thank You Note Tracker</h3>
+                    <p className="text-stone-500 dark:text-stone-400">Keep track of who you've thanked for their generous gifts.</p>
                   </div>
-                  <div className="bg-emerald-50 px-4 py-2 rounded-2xl border border-emerald-100">
-                    <span className="text-emerald-700 font-bold text-lg">
+                  <div className="bg-emerald-50 dark:bg-emerald-900/30 px-4 py-2 rounded-2xl border border-emerald-100 dark:border-emerald-800">
+                    <span className="text-emerald-700 dark:text-emerald-400 font-bold text-lg">
                       {getThankYouEntries(items).filter(e => e.thankYouSent).length} / {getThankYouEntries(items).length}
                     </span>
-                    <span className="text-emerald-600 text-sm ml-2 font-medium">Sent</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 text-sm ml-2 font-medium">Sent</span>
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   {getThankYouEntries(items).length === 0 ? (
-                    <div className="text-center py-12 bg-stone-50 rounded-2xl border border-dashed border-stone-200">
-                      <Clock className="w-10 h-10 text-stone-300 mx-auto mb-3" />
-                      <p className="text-stone-500 font-medium">No items have been claimed yet.</p>
+                    <div className="text-center py-12 bg-stone-50 dark:bg-stone-900/50 rounded-2xl border border-dashed border-stone-200 dark:border-stone-700">
+                      <Clock className="w-10 h-10 text-stone-300 dark:text-stone-600 mx-auto mb-3" />
+                      <p className="text-stone-500 dark:text-stone-400 font-medium">No items have been claimed yet.</p>
                     </div>
                   ) : (
                     getThankYouEntries(items)
@@ -1744,21 +1869,21 @@ export default function App() {
                           className={cn(
                             "flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl border transition-all",
                             entry.thankYouSent 
-                              ? "bg-stone-50 border-stone-100 opacity-75" 
-                              : "bg-white border-stone-100 shadow-sm hover:shadow-md"
+                              ? "bg-stone-50 dark:bg-stone-900/50 border-stone-100 dark:border-stone-800 opacity-75" 
+                              : "bg-white dark:bg-stone-900 border-stone-100 dark:border-stone-800 shadow-sm hover:shadow-md"
                           )}
                         >
                           <div className="flex items-center gap-4 mb-4 sm:mb-0">
                             {entry.itemImageUrl ? (
-                              <img src={entry.itemImageUrl} alt={entry.itemName} className="w-16 h-16 rounded-xl object-cover bg-stone-100" />
+                              <img src={entry.itemImageUrl} alt={entry.itemName} className="w-16 h-16 rounded-xl object-cover bg-stone-100 dark:bg-stone-800" />
                             ) : (
                               <CategoryPlaceholder category={entry.itemCategory} name={entry.itemName} className="w-16 h-16 rounded-xl" />
                             )}
                             <div>
-                              <h4 className="font-bold text-stone-900">{entry.itemName}</h4>
-                              <p className="text-sm text-stone-500">From: <span className="font-semibold text-stone-700">{entry.gifterName || entry.gifterEmail || 'Anonymous'}</span> <span className="text-stone-400 mx-1">•</span> {entry.amountOrQuantity}</p>
+                              <h4 className="font-bold text-stone-900 dark:text-stone-50">{entry.itemName}</h4>
+                              <p className="text-sm text-stone-500 dark:text-stone-400">From: <span className="font-semibold text-stone-700 dark:text-stone-300">{entry.gifterName || entry.gifterEmail || 'Anonymous'}</span> <span className="text-stone-400 dark:text-stone-500 mx-1">•</span> {entry.amountOrQuantity}</p>
                               {entry.message && (
-                                <div className="mt-2 p-2 bg-emerald-50/50 rounded-lg border border-emerald-100/50 italic text-xs text-stone-600">
+                                <div className="mt-2 p-2 bg-emerald-50/50 dark:bg-emerald-900/30 rounded-lg border border-emerald-100 dark:border-emerald-800/50 dark:border-emerald-800/50 italic text-xs text-stone-600 dark:text-stone-400">
                                   "{entry.message}"
                                 </div>
                               )}
@@ -1798,24 +1923,83 @@ export default function App() {
                   )}
                 </div>
               </motion.div>
+            ) : activeTab === 'guestbook' ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-6"
+              >
+                <div className="flex items-center justify-between bg-white dark:bg-stone-900 rounded-3xl border border-stone-100 dark:border-stone-800 p-8 shadow-sm">
+                  <div>
+                    <h3 className="text-2xl font-bold text-stone-900 dark:text-stone-50">Guest Book</h3>
+                    <p className="text-stone-500 dark:text-stone-400">Leave a message or well wishes for the family.</p>
+                  </div>
+                  <Button onClick={() => {
+                    if (!user) {
+                      setIsAuthModalOpen(true);
+                      return;
+                    }
+                    setIsAddGuestBookModalOpen(true);
+                  }}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Sign Guest Book
+                  </Button>
+                </div>
+
+                {guestBookEntries.length === 0 ? (
+                  <div className="bg-white dark:bg-stone-900 rounded-3xl border border-stone-100 dark:border-stone-800 p-12 text-center shadow-sm">
+                    <div className="w-16 h-16 bg-stone-50 dark:bg-stone-900/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Sparkles className="w-8 h-8 text-stone-300 dark:text-stone-600" />
+                    </div>
+                    <h3 className="text-lg font-bold text-stone-900 dark:text-stone-50 mb-2">No messages yet</h3>
+                    <p className="text-stone-500 dark:text-stone-400 mb-6 max-w-sm mx-auto">Be the first to leave a message or well wishes for the family.</p>
+                    <Button onClick={() => {
+                      if (!user) {
+                        setIsAuthModalOpen(true);
+                        return;
+                      }
+                      setIsAddGuestBookModalOpen(true);
+                    }}>
+                      Sign Guest Book
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {guestBookEntries.map(entry => (
+                      <Card key={entry.id} className="p-6 hover:shadow-md transition-shadow">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-100 to-emerald-100 flex items-center justify-center text-indigo-700 dark:text-indigo-400 font-bold text-lg shrink-0">
+                            {entry.authorName.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-xs text-stone-400 dark:text-stone-500 font-medium">
+                            {entry.createdAt?.toDate ? new Date(entry.createdAt.toDate()).toLocaleDateString() : 'Just now'}
+                          </span>
+                        </div>
+                        <p className="text-stone-700 dark:text-stone-300 text-sm leading-relaxed mb-4 whitespace-pre-wrap">"{entry.message}"</p>
+                        <p className="text-sm font-bold text-stone-900 dark:text-stone-50">— {entry.authorName}</p>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
             ) : (
               <>
                 {/* Prominent Size Guide Banner */}
                 {selectedRegistry.dueDate && (
                   <div 
                     onClick={() => setIsSizeGuideModalOpen(true)}
-                    className="mb-6 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100/50 rounded-2xl p-4 sm:p-5 flex items-center justify-between cursor-pointer hover:shadow-md hover:from-indigo-100/80 hover:to-blue-100/80 transition-all group"
+                    className="mb-6 bg-gradient-to-r from-indigo-50 dark:from-indigo-900/30 to-blue-50 dark:to-blue-900/30 border border-indigo-100 dark:border-indigo-800/50 rounded-2xl p-4 sm:p-5 flex items-center justify-between cursor-pointer hover:shadow-md hover:from-indigo-100/80 dark:hover:from-indigo-900/50 hover:to-blue-100/80 dark:hover:to-blue-900/50 transition-all group"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="bg-white p-2.5 sm:p-3 rounded-xl shadow-sm text-indigo-600 group-hover:scale-110 transition-transform">
+                      <div className="bg-white dark:bg-stone-900 p-2.5 sm:p-3 rounded-xl shadow-sm text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform">
                         <Ruler className="w-5 h-5 sm:w-6 sm:h-6" />
                       </div>
                       <div>
                         <h3 className="text-sm sm:text-base font-bold text-indigo-900">Not sure what size to buy?</h3>
-                        <p className="text-xs sm:text-sm text-indigo-700/80 mt-0.5">View our seasonal baby clothing size guide based on the due date</p>
+                        <p className="text-xs sm:text-sm text-indigo-700 dark:text-indigo-400/80 mt-0.5">View our seasonal baby clothing size guide based on the due date</p>
                       </div>
                     </div>
-                    <div className="hidden sm:flex items-center gap-2 text-indigo-600 font-medium text-sm bg-white/60 px-3 py-1.5 rounded-lg group-hover:bg-white transition-colors">
+                    <div className="hidden sm:flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium text-sm bg-white/60 dark:bg-stone-900/60 px-3 py-1.5 rounded-lg group-hover:bg-white dark:group-hover:bg-stone-900 transition-colors">
                       View Guide
                       <ChevronRight className="w-4 h-4" />
                     </div>
@@ -1833,8 +2017,8 @@ export default function App() {
                         className={cn(
                           "px-3 py-1.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap",
                           filterCategory === cat 
-                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-100" 
-                            : "bg-white text-stone-600 border border-stone-100 hover:bg-stone-50"
+                            ? "bg-emerald-600 dark:bg-emerald-500 text-white shadow-md shadow-emerald-100 dark:shadow-emerald-900/20" 
+                            : "bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-400 border border-stone-100 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-900/50"
                         )}
                       >
                         {cat}
@@ -1843,13 +2027,13 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto justify-between lg:justify-end">
-                    <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-stone-100 shadow-sm flex-1 sm:flex-none justify-center">
-                      <div className="flex border-r border-stone-100 pr-1.5">
+                    <div className="flex items-center gap-1.5 bg-white dark:bg-stone-900 p-1 rounded-xl border border-stone-100 dark:border-stone-800 shadow-sm flex-1 sm:flex-none justify-center">
+                      <div className="flex border-r border-stone-100 dark:border-stone-800 pr-1.5">
                         <button
                           onClick={() => setViewMode('grid')}
                           className={cn(
                             "p-1.5 rounded-lg transition-all",
-                            viewMode === 'grid' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
+                            viewMode === 'grid' ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400" : "text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400"
                           )}
                           title="Grid View"
                         >
@@ -1859,7 +2043,7 @@ export default function App() {
                           onClick={() => setViewMode('list')}
                           className={cn(
                             "p-1.5 rounded-lg transition-all",
-                            viewMode === 'list' ? "bg-emerald-50 text-emerald-600" : "text-stone-400 hover:text-stone-600"
+                            viewMode === 'list' ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400" : "text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400"
                           )}
                           title="List View"
                         >
@@ -1867,28 +2051,29 @@ export default function App() {
                         </button>
                       </div>
 
-                      <label className="flex items-center gap-1.5 px-1.5 cursor-pointer border-r border-stone-100 pr-2">
+                      <label className="flex items-center gap-1.5 px-1.5 cursor-pointer border-r border-stone-100 dark:border-stone-800 pr-2">
                         <input 
                           type="checkbox" 
                           checked={hideClaimed}
                           onChange={(e) => setHideClaimed(e.target.checked)}
-                          className="rounded text-emerald-600 focus:ring-emerald-500"
+                          className="rounded text-emerald-600 dark:text-emerald-400 focus:ring-emerald-500"
                         />
-                        <span className="text-xs font-medium text-stone-600 hidden sm:inline">Hide Claimed</span>
-                        <span className="text-xs font-medium text-stone-600 sm:hidden">Hide</span>
+                        <span className="text-xs font-medium text-stone-600 dark:text-stone-400 hidden sm:inline">Hide Claimed</span>
+                        <span className="text-xs font-medium text-stone-600 dark:text-stone-400 sm:hidden">Hide</span>
                       </label>
 
                       <div className="flex items-center pl-1">
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mr-1 hidden sm:inline">Sort:</span>
+                        <span className="text-[10px] font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider mr-1 hidden sm:inline">Sort:</span>
                         <select 
                           value={sortBy}
                           onChange={(e) => setSortBy(e.target.value as any)}
-                          className="bg-transparent text-xs font-medium text-stone-600 outline-none pr-1 py-1 cursor-pointer"
+                          className="bg-transparent text-xs font-medium text-stone-600 dark:text-stone-400 outline-none pr-1 py-1 cursor-pointer"
                         >
                           <option value="date">Date Added</option>
                           <option value="name">Name</option>
                           <option value="price-asc">Price: Low to High</option>
                           <option value="price-desc">Price: High to Low</option>
+                          <option value="must-have">Must-Haves First</option>
                         </select>
                       </div>
                     </div>
@@ -1897,7 +2082,7 @@ export default function App() {
                       <div className="flex gap-2 w-full sm:w-auto">
                         <Button 
                           variant="outline"
-                          className="rounded-xl px-3 py-2 text-xs h-auto bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100 flex-1 sm:flex-none"
+                          className="rounded-xl px-3 py-2 text-xs h-auto bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-800/50 flex-1 sm:flex-none"
                           onClick={() => {
                             setIsAIRecommenderOpen(true);
                             if (aiSuggestions.length === 0) {
@@ -1942,6 +2127,14 @@ export default function App() {
                     .filter(item => filterCategory === 'All' || item.category === filterCategory)
                     .filter(item => !hideClaimed || item.status !== 'claimed')
                     .sort((a, b) => {
+                      if (sortBy === 'must-have') {
+                        if (a.isMustHave && !b.isMustHave) return -1;
+                        if (!a.isMustHave && b.isMustHave) return 1;
+                        // fallback to date if both are must-have or neither
+                        const dateA = a.createdAt?.seconds || 0;
+                        const dateB = b.createdAt?.seconds || 0;
+                        return dateB - dateA;
+                      }
                       if (sortBy === 'name') return a.name.localeCompare(b.name);
                       if (sortBy === 'price-asc') return (a.price || 0) - (b.price || 0);
                       if (sortBy === 'price-desc') return (b.price || 0) - (a.price || 0);
@@ -1960,7 +2153,7 @@ export default function App() {
                       )}>
                         {item.imageUrl ? (
                           <div className={cn(
-                            "relative overflow-hidden bg-stone-100 border-stone-50 shrink-0",
+                            "relative overflow-hidden bg-stone-100 dark:bg-stone-800 border-stone-50 dark:border-stone-800 shrink-0",
                             viewMode === 'grid' ? "aspect-[4/3] w-full border-b" : "w-full h-40 sm:w-32 sm:h-auto self-stretch border-b sm:border-b-0 sm:border-r"
                           )}>
                             <img 
@@ -1986,11 +2179,11 @@ export default function App() {
                             viewMode === 'grid' ? "mb-2" : "mb-1"
                           )}>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-md">
                                 {item.category || 'General'}
                               </span>
                               {item.isMustHave && (
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded-md flex items-center gap-1">
                                   <Heart className="w-3 h-3 fill-rose-600" />
                                   Must-Have
                                 </span>
@@ -2007,7 +2200,7 @@ export default function App() {
                                   setShowShareToast(true);
                                   setTimeout(() => setShowShareToast(false), 3000);
                                 }}
-                                className="text-stone-300 hover:text-emerald-600 transition-colors"
+                                className="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:text-emerald-400 transition-colors"
                                 title="Share Item"
                               >
                                 <Share2 className="w-4 h-4" />
@@ -2021,14 +2214,14 @@ export default function App() {
                                       setFetchMetadataError(null);
                                       setIsEditItemModalOpen(true);
                                     }}
-                                    className="text-stone-300 hover:text-emerald-600 transition-colors"
+                                    className="text-stone-300 dark:text-stone-600 hover:text-emerald-600 dark:text-emerald-400 transition-colors"
                                     title="Edit Item"
                                   >
                                     <Pencil className="w-4 h-4" />
                                   </button>
                                   <button 
                                     onClick={() => deleteItem(item.id)}
-                                    className="text-stone-300 hover:text-rose-500 transition-colors"
+                                    className="text-stone-300 dark:text-stone-600 hover:text-rose-500 transition-colors"
                                     title="Delete Item"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -2038,12 +2231,12 @@ export default function App() {
                             </div>
                           </div>
                           <h4 className={cn(
-                            "font-bold text-stone-900 mb-0.5",
+                            "font-bold text-stone-900 dark:text-stone-50 mb-0.5",
                             viewMode === 'grid' ? "text-base" : "text-sm"
                           )}>{item.name}</h4>
                           {item.description && (
                             <p className={cn(
-                              "text-stone-500 text-xs line-clamp-2",
+                              "text-stone-500 dark:text-stone-400 text-xs line-clamp-2",
                               viewMode === 'grid' ? "mb-1.5" : "mb-1"
                             )}>
                               {item.description}
@@ -2053,15 +2246,15 @@ export default function App() {
                             "flex items-center gap-2",
                             viewMode === 'grid' ? "mb-2" : "mb-1"
                           )}>
-                            <span className="text-[10px] font-medium text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
+                            <span className="text-[10px] font-medium text-stone-400 dark:text-stone-500 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-full">
                               Qty: {item.quantity || 1}
                             </span>
                             {item.quantity > 1 && (
                               <span className={cn(
                                 "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
                                 (item.quantityClaimed || 0) + (item.quantityReserved || 0) >= item.quantity 
-                                  ? "text-emerald-600 bg-emerald-50" 
-                                  : "text-amber-600 bg-amber-50"
+                                  ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30" 
+                                  : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30"
                               )}>
                                 {item.quantity - (item.quantityClaimed || 0) - (item.quantityReserved || 0)} left
                               </span>
@@ -2070,7 +2263,7 @@ export default function App() {
 
                           {item.quantity > 1 && (item.quantityClaimed || 0) + (item.quantityReserved || 0) > 0 && (
                             <div className={cn(
-                              "relative h-1.5 w-full bg-stone-100 rounded-full overflow-hidden",
+                              "relative h-1.5 w-full bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden",
                               viewMode === 'grid' ? "mb-2" : "mb-1"
                             )}>
                               <div 
@@ -2086,13 +2279,13 @@ export default function App() {
 
                           {isOwner && item.claims && item.claims.length > 0 && (
                             <div className={cn(
-                              "pt-2 border-t border-stone-100",
+                              "pt-2 border-t border-stone-100 dark:border-stone-800",
                               viewMode === 'grid' ? "mb-2" : "mb-1"
                             )}>
-                              <h5 className="text-[9px] font-bold text-stone-400 mb-1 uppercase tracking-wider">Claimed By</h5>
+                              <h5 className="text-[9px] font-bold text-stone-400 dark:text-stone-500 mb-1 uppercase tracking-wider">Claimed By</h5>
                               <div className="flex flex-wrap gap-1">
                                 {item.claims.map((c, idx) => (
-                                  <span key={idx} className="text-[9px] bg-stone-50 px-1.5 py-0.5 rounded border border-stone-100 text-stone-600">
+                                  <span key={idx} className="text-[9px] bg-stone-50 dark:bg-stone-900/50 px-1.5 py-0.5 rounded border border-stone-100 dark:border-stone-800 text-stone-600 dark:text-stone-400">
                                     {c.userName} ({c.quantity})
                                   </span>
                                 ))}
@@ -2104,17 +2297,17 @@ export default function App() {
                             <div className={cn(
                               viewMode === 'grid' ? "mb-2" : "mb-1"
                             )}>
-                              <div className="flex justify-between text-[10px] text-stone-500 mb-1">
+                              <div className="flex justify-between text-[10px] text-stone-500 dark:text-stone-400 mb-1">
                                 <span>Group Gift Progress</span>
                                 <span>{Math.round(((item.amountContributed || 0) / item.price) * 100)}%</span>
                               </div>
-                              <div className="w-full bg-stone-100 rounded-full h-1.5 overflow-hidden">
+                              <div className="w-full bg-stone-100 dark:bg-stone-800 rounded-full h-1.5 overflow-hidden">
                                 <div 
                                   className="bg-emerald-500 h-full transition-all duration-500" 
                                   style={{ width: `${Math.min(100, ((item.amountContributed || 0) / item.price) * 100)}%` }}
                                 />
                               </div>
-                              <div className="flex justify-between text-[9px] text-stone-400 mt-1">
+                              <div className="flex justify-between text-[9px] text-stone-400 dark:text-stone-500 mt-1">
                                 <span>{getCurrencySymbol(selectedRegistry.currency)}{item.amountContributed || 0}</span>
                                 <span>Target: {getCurrencySymbol(selectedRegistry.currency)}{item.price}</span>
                               </div>
@@ -2123,18 +2316,18 @@ export default function App() {
 
                           {isOwner && item.isGroupGifting && item.contributions && item.contributions.length > 0 && (
                             <div className={cn(
-                              "pt-2 border-t border-stone-100",
+                              "pt-2 border-t border-stone-100 dark:border-stone-800",
                               viewMode === 'grid' ? "mb-2" : "mb-1"
                             )}>
-                              <h5 className="text-[9px] font-bold text-stone-400 mb-1 uppercase tracking-wider">Contributions</h5>
+                              <h5 className="text-[9px] font-bold text-stone-400 dark:text-stone-500 mb-1 uppercase tracking-wider">Contributions</h5>
                               <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1 custom-scrollbar">
                                 {item.contributions.map((c, idx) => (
-                                  <div key={idx} className="text-[11px] bg-stone-50 p-2 rounded-lg border border-stone-100">
-                                    <div className="flex justify-between font-medium text-stone-800 mb-0.5">
+                                  <div key={idx} className="text-[11px] bg-stone-50 dark:bg-stone-900/50 p-2 rounded-lg border border-stone-100 dark:border-stone-800">
+                                    <div className="flex justify-between font-medium text-stone-800 dark:text-stone-200 mb-0.5">
                                       <span>{c.userName}</span>
-                                      <span className="text-emerald-600">{getCurrencySymbol(selectedRegistry.currency)}{c.amount}</span>
+                                      <span className="text-emerald-600 dark:text-emerald-400">{getCurrencySymbol(selectedRegistry.currency)}{c.amount}</span>
                                     </div>
-                                    {c.message && <p className="text-stone-500 italic">"{c.message}"</p>}
+                                    {c.message && <p className="text-stone-500 dark:text-stone-400 italic">"{c.message}"</p>}
                                   </div>
                                 ))}
                               </div>
@@ -2144,7 +2337,7 @@ export default function App() {
                           <div className="flex items-center justify-between mt-auto">
                             {item.price != null ? (
                               <span className={cn(
-                                "font-bold text-stone-900",
+                                "font-bold text-stone-900 dark:text-stone-50",
                                 viewMode === 'grid' ? "text-lg" : "text-sm"
                               )}>
                                 {getCurrencySymbol(selectedRegistry.currency)}{item.price}
@@ -2158,7 +2351,7 @@ export default function App() {
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className={cn(
-                                  "inline-flex items-center gap-1 bg-stone-900 hover:bg-stone-800 text-white font-medium rounded-lg transition-colors shadow-sm",
+                                  "inline-flex items-center gap-1 bg-stone-900 dark:bg-stone-50 hover:bg-stone-800 dark:hover:bg-stone-100 text-white dark:text-stone-900 font-medium rounded-lg transition-colors shadow-sm",
                                   viewMode === 'grid' ? "px-3 py-1.5 text-xs" : "px-2.5 py-1 text-[10px]"
                                 )}
                               >
@@ -2170,7 +2363,7 @@ export default function App() {
                         </div>
 
                         <div className={cn(
-                          "p-3 sm:p-4 bg-stone-50 border-stone-100 shrink-0",
+                          "p-3 sm:p-4 bg-stone-50 dark:bg-stone-900/50 border-stone-100 dark:border-stone-800 shrink-0",
                           viewMode === 'grid' ? "border-t" : "border-t sm:border-t-0 sm:border-l flex flex-col justify-center w-full sm:w-40"
                         )}>
                           {(() => {
@@ -2224,7 +2417,7 @@ export default function App() {
                                   <div className="flex items-center justify-between">
                                     <div className={cn(
                                       "flex items-center gap-2 text-sm font-semibold",
-                                      isClaimed ? "text-emerald-600" : "text-amber-600"
+                                      isClaimed ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
                                     )}>
                                       {isClaimed ? (
                                         <CheckCircle className={viewMode === 'grid' ? "w-4 h-4" : "w-3.5 h-3.5"} />
@@ -2254,7 +2447,7 @@ export default function App() {
 
                             if (item.status === 'claimed') {
                               return (
-                                <div className="flex items-center gap-2 text-emerald-600 text-sm font-semibold justify-center py-2">
+                                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm font-semibold justify-center py-2">
                                   <CheckCircle className="w-4 h-4" />
                                   <span>Fully Claimed</span>
                                 </div>
@@ -2263,7 +2456,7 @@ export default function App() {
 
                             if (item.status === 'reserved' && remainingQty <= 0) {
                               return (
-                                <div className="flex items-center gap-2 text-amber-600 text-sm font-semibold justify-center py-2">
+                                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-sm font-semibold justify-center py-2">
                                   <Clock className="w-4 h-4" />
                                   <span>Fully Reserved</span>
                                 </div>
@@ -2317,14 +2510,14 @@ export default function App() {
                 </div>
 
                 {items.length === 0 ? (
-                  <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
-                    <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
-                    <p className="text-stone-400">No items added to this registry yet.</p>
+                  <div className="text-center py-20 bg-white dark:bg-stone-900 rounded-3xl border border-dashed border-stone-200 dark:border-stone-700">
+                    <Package className="w-12 h-12 text-stone-200 dark:text-stone-700 mx-auto mb-4" />
+                    <p className="text-stone-400 dark:text-stone-500">No items added to this registry yet.</p>
                   </div>
                 ) : items.filter(item => filterCategory === 'All' || item.category === filterCategory).length === 0 && (
-                  <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-stone-200">
-                    <Package className="w-12 h-12 text-stone-200 mx-auto mb-4" />
-                    <p className="text-stone-400">No items found in the "{filterCategory}" category.</p>
+                  <div className="text-center py-20 bg-white dark:bg-stone-900 rounded-3xl border border-dashed border-stone-200 dark:border-stone-700">
+                    <Package className="w-12 h-12 text-stone-200 dark:text-stone-700 mx-auto mb-4" />
+                    <p className="text-stone-400 dark:text-stone-500">No items found in the "{filterCategory}" category.</p>
                     <Button variant="ghost" onClick={() => setFilterCategory('All')} className="mt-4">
                       Clear Filter
                     </Button>
@@ -2347,39 +2540,39 @@ export default function App() {
       >
         <form onSubmit={handleAuthSubmit} className="space-y-4">
           {authError && (
-            <div className="p-3 bg-rose-50 text-rose-600 text-sm rounded-xl border border-rose-100">
+            <div className="p-3 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 text-sm rounded-xl border border-rose-100 dark:border-rose-800">
               {authError}
             </div>
           )}
           {authMode === 'register' && (
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Name</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Name</label>
               <input 
                 name="displayName" 
                 required 
-                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-3 py-2.5 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="Your name"
               />
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Email</label>
             <input 
               name="email" 
               type="email"
               required 
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="you@example.com"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Password</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Password</label>
             <input 
               name="password" 
               type="password"
               required 
               minLength={6}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="••••••••"
             />
           </div>
@@ -2389,10 +2582,10 @@ export default function App() {
           
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-stone-200"></div>
+              <div className="w-full border-t border-stone-200 dark:border-stone-700"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-stone-500">Or continue with</span>
+              <span className="px-2 bg-white dark:bg-stone-900 text-stone-500 dark:text-stone-400">Or continue with</span>
             </div>
           </div>
 
@@ -2400,7 +2593,7 @@ export default function App() {
             type="button"
             onClick={handleGoogleSignIn}
             disabled={isLoggingIn}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 border border-stone-300 rounded-xl bg-white text-stone-700 font-medium hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 border border-stone-300 dark:border-stone-600 rounded-xl bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 font-medium hover:bg-stone-50 dark:hover:bg-stone-900/50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors disabled:opacity-50"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -2430,7 +2623,7 @@ export default function App() {
                 setAuthMode(authMode === 'login' ? 'register' : 'login');
                 setAuthError(null);
               }}
-              className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+              className="text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:text-emerald-400 font-medium"
             >
               {authMode === 'login' ? "Don't have an account? Register" : "Already have an account? Sign in"}
             </button>
@@ -2445,47 +2638,47 @@ export default function App() {
       >
         <form onSubmit={createRegistry} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Baby's Name</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Baby's Name</label>
             <input 
               name="babyName" 
               required 
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="e.g. Baby Smith"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Due Date (Optional)</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Due Date (Optional)</label>
             <input 
               name="dueDate" 
               type="date"
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Description</label>
             <textarea 
               name="description" 
               rows={3}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="A little bit about your registry..."
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Welcome Message (Optional)</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Welcome Message (Optional)</label>
             <textarea 
               name="welcomeMessage" 
               rows={2}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="A special note for your guests..."
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Currency</label>
               <select 
                 name="currency"
                 defaultValue="USD"
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               >
                 {CURRENCIES.map(c => (
                   <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
@@ -2493,11 +2686,11 @@ export default function App() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Location</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Location</label>
               <select 
                 name="hemisphere"
                 defaultValue="southern"
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               >
                 <option value="northern">Northern Hemisphere</option>
                 <option value="southern">Southern Hemisphere</option>
@@ -2514,23 +2707,23 @@ export default function App() {
         title="✨ Smart Gift Recommender"
       >
         <div className="space-y-6">
-          <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl text-sm leading-relaxed">
+          <div className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 p-4 rounded-xl text-sm leading-relaxed">
             <p className="font-medium mb-1">AI Gap Analysis</p>
             <p>We analyze your current registry items, your baby's due date, and the season to suggest essential items you might have missed.</p>
           </div>
 
           {isAILoading ? (
-            <div className="flex flex-col items-center justify-center py-12 text-stone-400">
-              <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+            <div className="flex flex-col items-center justify-center py-12 text-stone-400 dark:text-stone-500">
+              <div className="w-8 h-8 border-4 border-indigo-200 dark:border-indigo-700 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
               <p className="text-sm">Analyzing your registry...</p>
             </div>
           ) : aiError ? (
-            <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-sm">
+            <div className="bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 p-4 rounded-xl text-sm">
               <p className="font-medium mb-2">Oops!</p>
               <p>{aiError}</p>
               <Button 
                 variant="outline" 
-                className="mt-4 w-full border-rose-200 text-rose-700 hover:bg-rose-100"
+                className="mt-4 w-full border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50"
                 onClick={generateAIRecommendations}
               >
                 Try Again
@@ -2539,26 +2732,26 @@ export default function App() {
           ) : aiSuggestions.length > 0 ? (
             <div className="space-y-4">
               {aiSuggestions.map((suggestion, index) => (
-                <div key={index} className="border border-stone-100 rounded-xl p-4 hover:border-indigo-100 hover:shadow-sm transition-all bg-white">
+                <div key={index} className="border border-stone-100 dark:border-stone-800 rounded-xl p-4 hover:border-indigo-100 dark:hover:border-indigo-800 hover:shadow-sm transition-all bg-white dark:bg-stone-900">
                   <div className="flex justify-between items-start gap-4 mb-2">
                     <div>
-                      <h4 className="font-semibold text-stone-900">{suggestion.name}</h4>
-                      <span className="inline-block px-2 py-0.5 bg-stone-100 text-stone-600 rounded-md text-xs font-medium mt-1">
+                      <h4 className="font-semibold text-stone-900 dark:text-stone-50">{suggestion.name}</h4>
+                      <span className="inline-block px-2 py-0.5 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 rounded-md text-xs font-medium mt-1">
                         {suggestion.category}
                       </span>
                     </div>
-                    <span className="font-medium text-emerald-600 whitespace-nowrap">
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                       ~{getCurrencySymbol(selectedRegistry?.currency || 'USD')}{suggestion.estimatedPrice}
                     </span>
                   </div>
-                  <p className="text-sm text-stone-600 mb-3">{suggestion.description}</p>
-                  <div className="bg-indigo-50/50 p-3 rounded-lg text-xs text-indigo-700 mb-4 flex gap-2 items-start">
+                  <p className="text-sm text-stone-600 dark:text-stone-400 mb-3">{suggestion.description}</p>
+                  <div className="bg-indigo-50/50 dark:bg-indigo-900/30 p-3 rounded-lg text-xs text-indigo-700 dark:text-indigo-400 mb-4 flex gap-2 items-start">
                     <span className="shrink-0 mt-0.5">💡</span>
                     <p>{suggestion.reason}</p>
                   </div>
                   <Button 
                     variant="outline" 
-                    className="w-full text-sm py-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                    className="w-full text-sm py-2 border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:bg-indigo-900/30"
                     onClick={async () => {
                       if (!user || !selectedRegistry) return;
                       try {
@@ -2596,7 +2789,7 @@ export default function App() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8 text-stone-500">
+            <div className="text-center py-8 text-stone-500 dark:text-stone-400">
               <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
               <p>Your registry looks great! We couldn't find any major gaps.</p>
             </div>
@@ -2605,23 +2798,57 @@ export default function App() {
       </Modal>
 
       <Modal 
+        isOpen={isAddGuestBookModalOpen} 
+        onClose={() => setIsAddGuestBookModalOpen(false)} 
+        title="Sign Guest Book"
+      >
+        <form onSubmit={handleGuestBookSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Your Name</label>
+            <input 
+              type="text" 
+              value={guestBookName}
+              onChange={(e) => setGuestBookName(e.target.value)}
+              required 
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              placeholder="Enter your name"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Message</label>
+            <textarea 
+              value={guestBookMessage}
+              onChange={(e) => setGuestBookMessage(e.target.value)}
+              required 
+              rows={4}
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all custom-scrollbar"
+              placeholder="Leave a message or well wishes for the family..."
+            />
+          </div>
+          <Button type="submit" className="w-full py-3" disabled={isSubmittingGuestBook}>
+            {isSubmittingGuestBook ? 'Submitting...' : 'Sign Guest Book'}
+          </Button>
+        </form>
+      </Modal>
+
+      <Modal 
         isOpen={isAIGeneratorOpen} 
         onClose={() => setIsAIGeneratorOpen(false)} 
         title="✨ AI Thank You Note Generator"
       >
         <div className="space-y-6">
-          <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl text-sm leading-relaxed">
+          <div className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 p-4 rounded-xl text-sm leading-relaxed">
             <p className="font-medium mb-1">Generate a personalized note</p>
             <p>Let AI help you write a thoughtful thank you note for {aiGeneratorEntry?.itemName}.</p>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Tone</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Tone</label>
               <select 
                 value={aiGeneratorTone}
                 onChange={(e) => setAiGeneratorTone(e.target.value)}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
               >
                 <option value="Heartfelt">Heartfelt</option>
                 <option value="Casual">Casual</option>
@@ -2632,24 +2859,24 @@ export default function App() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Additional Details (Optional)</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Additional Details (Optional)</label>
               <textarea 
                 value={aiGeneratorDetails}
                 onChange={(e) => setAiGeneratorDetails(e.target.value)}
                 placeholder="e.g., Mention how much we love the color, or that we plan to use it right away."
                 rows={3}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all custom-scrollbar"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all custom-scrollbar"
               />
             </div>
 
             <Button 
               onClick={generateThankYouNote} 
               disabled={isGeneratingNote}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white"
+              className="w-full py-3 bg-indigo-600 dark:bg-indigo-500 hover:bg-indigo-700 dark:hover:bg-indigo-600 text-white"
             >
               {isGeneratingNote ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></div>
+                  <div className="w-4 h-4 border-2 border-white dark:border-stone-900/30 border-t-white rounded-full animate-spin mr-2"></div>
                   Generating...
                 </>
               ) : (
@@ -2662,7 +2889,7 @@ export default function App() {
           </div>
 
           {aiError && (
-            <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-sm">
+            <div className="bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 p-4 rounded-xl text-sm">
               <p className="font-medium mb-1">Error</p>
               <p>{aiError}</p>
             </div>
@@ -2671,10 +2898,10 @@ export default function App() {
           {generatedNote && (
             <div className="mt-6 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-semibold text-stone-900">Generated Note</h4>
+                <h4 className="font-semibold text-stone-900 dark:text-stone-50">Generated Note</h4>
                 <Button 
                   variant="ghost" 
-                  className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-3 py-1.5 h-auto text-xs"
+                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 h-auto text-xs"
                   onClick={() => {
                     navigator.clipboard.writeText(generatedNote);
                     toast.success('Copied to clipboard!');
@@ -2684,7 +2911,7 @@ export default function App() {
                   Copy
                 </Button>
               </div>
-              <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 text-stone-700 text-sm whitespace-pre-wrap">
+              <div className="bg-stone-50 dark:bg-stone-900/50 border border-stone-200 dark:border-stone-700 rounded-xl p-4 text-stone-700 dark:text-stone-300 text-sm whitespace-pre-wrap">
                 {generatedNote}
               </div>
             </div>
@@ -2699,21 +2926,21 @@ export default function App() {
       >
         <form onSubmit={handleBatchAdd} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Items List</label>
-            <p className="text-xs text-stone-500 mb-2">Paste a list of items, one per line. Each line will become a separate item in your registry.</p>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Items List</label>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mb-2">Paste a list of items, one per line. Each line will become a separate item in your registry.</p>
             <textarea 
               name="itemsText" 
               required 
               rows={8}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all custom-scrollbar"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all custom-scrollbar"
               placeholder="Saline nose spray&#10;Baba hangers&#10;Sudocrem/oh lief bum balm&#10;Bad goedjies en roompies (oh lief, epimax, Aveeno)&#10;Doeke (huggies extra care, huggies Gold, pampers premium, pampers)&#10;Mussies (blou, wit, grys, cream, groen)&#10;Vessies alles grotes van 3 tot 24 maande langmou en kortmou afhangend van seisoen&#10;Fluffy onesies, double sided zip, newborn."
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Category (Optional)</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Category (Optional)</label>
             <select 
               name="category" 
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             >
               <option value="">Select a category for all items...</option>
               <option value="Gear">Gear & Travel</option>
@@ -2741,42 +2968,42 @@ export default function App() {
       >
         <form onSubmit={addItem} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Item Name</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Item Name</label>
             <input 
               name="name" 
               id="addItemName"
               required 
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="e.g. Baby Stroller"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Price ({getCurrencySymbol(selectedRegistry?.currency)})</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Price ({getCurrencySymbol(selectedRegistry?.currency)})</label>
               <input 
                 name="price" 
                 type="number"
                 step="0.01"
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="0.00"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Quantity</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Quantity</label>
               <input 
                 name="quantity" 
                 type="number"
                 min="1"
                 defaultValue="1"
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Category</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Category</label>
             <select 
               name="category"
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
             >
                 <option value="Gear">Gear</option>
                 <option value="Clothing">Clothing</option>
@@ -2791,9 +3018,9 @@ export default function App() {
               name="isGroupGifting" 
               type="checkbox"
               id="isGroupGifting"
-              className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+              className="rounded border-stone-300 dark:border-stone-600 text-emerald-600 dark:text-emerald-400 focus:ring-emerald-500"
             />
-            <label htmlFor="isGroupGifting" className="text-sm font-medium text-stone-700">
+            <label htmlFor="isGroupGifting" className="text-sm font-medium text-stone-700 dark:text-stone-300">
               Enable Group Gifting (for big items)
             </label>
           </div>
@@ -2802,20 +3029,20 @@ export default function App() {
               name="isMustHave" 
               type="checkbox"
               id="isMustHave"
-              className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+              className="rounded border-stone-300 dark:border-stone-600 text-emerald-600 dark:text-emerald-400 focus:ring-emerald-500"
             />
-            <label htmlFor="isMustHave" className="text-sm font-medium text-stone-700">
+            <label htmlFor="isMustHave" className="text-sm font-medium text-stone-700 dark:text-stone-300">
               Mark as "Must-Have" Item
             </label>
           </div>
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Link (URL)</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Link (URL)</label>
             <div className="flex gap-2">
               <input 
                 name="url" 
                 id="addItemUrl"
                 type="url"
-                className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="flex-1 rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="https://..."
                 onBlur={async (e) => {
                   if (e.target.value) {
@@ -2855,14 +3082,14 @@ export default function App() {
           </div>
 
           {fetchMetadataError && (
-            <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
+            <div className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl border border-amber-100 dark:border-amber-800">
               {fetchMetadataError}
             </div>
           )}
 
           {fetchedImages.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-2">Choose Image</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">Choose Image</label>
               <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                 {fetchedImages.map((img, idx) => (
                   <button
@@ -2876,7 +3103,7 @@ export default function App() {
                   >
                     <img src={img} alt={`Option ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     {selectedImageUrl === img && (
-                      <div className="absolute inset-0 bg-emerald-500/10 flex items-center justify-center">
+                      <div className="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 flex items-center justify-center">
                         <div className="bg-emerald-500 text-white rounded-full p-0.5">
                           <Check className="w-3 h-3" />
                         </div>
@@ -2889,8 +3116,8 @@ export default function App() {
                   type="button"
                   onClick={() => setSelectedImageUrl(null)}
                   className={cn(
-                    "relative flex-shrink-0 w-20 h-20 rounded-lg border-2 border-dashed border-stone-300 flex flex-col items-center justify-center text-stone-400 hover:text-stone-600 hover:border-stone-400 transition-all",
-                    selectedImageUrl === null ? "border-emerald-500 text-emerald-500 bg-emerald-50" : ""
+                    "relative flex-shrink-0 w-20 h-20 rounded-lg border-2 border-dashed border-stone-300 dark:border-stone-600 flex flex-col items-center justify-center text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 hover:border-stone-400 transition-all",
+                    selectedImageUrl === null ? "border-emerald-500 text-emerald-500 bg-emerald-50 dark:bg-emerald-900/30" : ""
                   )}
                 >
                   <span className="text-[10px] font-medium uppercase">No Image</span>
@@ -2901,25 +3128,25 @@ export default function App() {
 
           {(!fetchedImages || fetchedImages.length === 0) && (
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Image (Optional)</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Image (Optional)</label>
               <div className="flex gap-2">
                 <input 
                   name="imageUrl" 
                   type="url"
                   value={selectedImageUrl || ''}
                   onChange={(e) => setSelectedImageUrl(e.target.value)}
-                  className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="flex-1 rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                   placeholder="https://..."
                 />
               </div>
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Description</label>
             <textarea 
               name="description" 
               rows={2}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="Size, color, or other details..."
             />
           </div>
@@ -2942,45 +3169,45 @@ export default function App() {
         {editingItem && (
           <form onSubmit={editItem} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Item Name</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Item Name</label>
               <input 
                 name="name" 
                 id="editItemName"
                 required 
                 defaultValue={editingItem.name}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="e.g. Baby Stroller"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Price ({getCurrencySymbol(selectedRegistry?.currency)})</label>
+                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Price ({getCurrencySymbol(selectedRegistry?.currency)})</label>
                 <input 
                   name="price" 
                   type="number"
                   step="0.01"
                   defaultValue={editingItem.price}
-                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                   placeholder="0.00"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Quantity</label>
+                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Quantity</label>
                 <input 
                   name="quantity" 
                   type="number"
                   min="1"
                   defaultValue={editingItem.quantity || 1}
-                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Category</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Category</label>
               <select 
                 name="category"
                 defaultValue={editingItem.category}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               >
                   <option value="Gear">Gear</option>
                   <option value="Clothing">Clothing</option>
@@ -2996,9 +3223,9 @@ export default function App() {
                 type="checkbox"
                 id="editIsGroupGifting"
                 defaultChecked={editingItem.isGroupGifting}
-                className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+                className="rounded border-stone-300 dark:border-stone-600 text-emerald-600 dark:text-emerald-400 focus:ring-emerald-500"
               />
-              <label htmlFor="editIsGroupGifting" className="text-sm font-medium text-stone-700">
+              <label htmlFor="editIsGroupGifting" className="text-sm font-medium text-stone-700 dark:text-stone-300">
                 Enable Group Gifting (for big items)
               </label>
             </div>
@@ -3008,21 +3235,21 @@ export default function App() {
                 type="checkbox"
                 id="editIsMustHave"
                 defaultChecked={editingItem.isMustHave}
-                className="rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+                className="rounded border-stone-300 dark:border-stone-600 text-emerald-600 dark:text-emerald-400 focus:ring-emerald-500"
               />
-              <label htmlFor="editIsMustHave" className="text-sm font-medium text-stone-700">
+              <label htmlFor="editIsMustHave" className="text-sm font-medium text-stone-700 dark:text-stone-300">
                 Mark as "Must-Have" Item
               </label>
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Link (URL)</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Link (URL)</label>
               <div className="flex gap-2">
                 <input 
                   name="url" 
                   id="editItemUrl"
                   type="url"
                   defaultValue={editingItem.url}
-                  className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="flex-1 rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                   placeholder="https://..."
                   onBlur={async (e) => {
                     if (e.target.value) {
@@ -3062,14 +3289,14 @@ export default function App() {
             </div>
 
             {fetchMetadataError && (
-              <div className="text-sm text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-100">
+              <div className="text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl border border-amber-100 dark:border-amber-800">
                 {fetchMetadataError}
               </div>
             )}
 
             {(fetchedImages.length > 0 || editingItem.imageUrl) && (
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-2">Choose Image</label>
+                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-2">Choose Image</label>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                   {/* Current Image */}
                   {editingItem.imageUrl && !fetchedImages.includes(editingItem.imageUrl) && (
@@ -3084,7 +3311,7 @@ export default function App() {
                       <img src={editingItem.imageUrl} alt="Current" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       <span className="absolute bottom-0 left-0 right-0 bg-black/50 text-[8px] text-white py-0.5 text-center">Current</span>
                       {selectedImageUrl === editingItem.imageUrl && (
-                        <div className="absolute inset-0 bg-emerald-500/10 flex items-center justify-center">
+                        <div className="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 flex items-center justify-center">
                           <div className="bg-emerald-500 text-white rounded-full p-0.5">
                             <Check className="w-3 h-3" />
                           </div>
@@ -3105,7 +3332,7 @@ export default function App() {
                     >
                       <img src={img} alt={`Option ${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       {selectedImageUrl === img && (
-                        <div className="absolute inset-0 bg-emerald-500/10 flex items-center justify-center">
+                        <div className="absolute inset-0 bg-emerald-500/10 dark:bg-emerald-500/20 flex items-center justify-center">
                           <div className="bg-emerald-500 text-white rounded-full p-0.5">
                             <Check className="w-3 h-3" />
                           </div>
@@ -3118,8 +3345,8 @@ export default function App() {
                     type="button"
                     onClick={() => setSelectedImageUrl(null)}
                     className={cn(
-                      "relative flex-shrink-0 w-20 h-20 rounded-lg border-2 border-dashed border-stone-300 flex flex-col items-center justify-center text-stone-400 hover:text-stone-600 hover:border-stone-400 transition-all",
-                      selectedImageUrl === null ? "border-emerald-500 text-emerald-500 bg-emerald-50" : ""
+                      "relative flex-shrink-0 w-20 h-20 rounded-lg border-2 border-dashed border-stone-300 dark:border-stone-600 flex flex-col items-center justify-center text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 hover:border-stone-400 transition-all",
+                      selectedImageUrl === null ? "border-emerald-500 text-emerald-500 bg-emerald-50 dark:bg-emerald-900/30" : ""
                     )}
                   >
                     <span className="text-[10px] font-medium uppercase">No Image</span>
@@ -3130,26 +3357,26 @@ export default function App() {
 
             {(!fetchedImages || fetchedImages.length === 0) && !editingItem.imageUrl && (
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Image (Optional)</label>
+                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Image (Optional)</label>
                 <div className="flex gap-2">
                   <input 
                     name="imageUrl" 
                     type="url"
                     value={selectedImageUrl || ''}
                     onChange={(e) => setSelectedImageUrl(e.target.value)}
-                    className="flex-1 rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    className="flex-1 rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                     placeholder="https://..."
                   />
                 </div>
               </div>
             )}
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Description</label>
               <textarea 
                 name="description" 
                 rows={2}
                 defaultValue={editingItem.description}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="Size, color, or other details..."
               />
             </div>
@@ -3167,12 +3394,12 @@ export default function App() {
       >
         {selectedRegistry && selectedRegistry.dueDate && (
           <div className="space-y-4">
-            <p className="text-sm text-stone-600 mb-4">
+            <p className="text-sm text-stone-600 dark:text-stone-400 mb-4">
               Based on the expected due date ({new Date(selectedRegistry.dueDate).toLocaleDateString()}) and location ({selectedRegistry.hemisphere === 'northern' ? 'Northern' : 'Southern'} Hemisphere), here is a guide for what size clothes the baby will likely wear in each season.
             </p>
-            <div className="overflow-hidden rounded-xl border border-stone-200">
+            <div className="overflow-hidden rounded-xl border border-stone-200 dark:border-stone-700">
               <table className="w-full text-sm text-left">
-                <thead className="bg-stone-50 text-stone-700 font-medium border-b border-stone-200">
+                <thead className="bg-stone-50 dark:bg-stone-900/50 text-stone-700 dark:text-stone-300 font-medium border-b border-stone-200 dark:border-stone-700">
                   <tr>
                     <th className="px-4 py-3">Size</th>
                     <th className="px-4 py-3">Age</th>
@@ -3180,14 +3407,14 @@ export default function App() {
                     <th className="px-4 py-3">Season</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-stone-200 bg-white">
+                <tbody className="divide-y divide-stone-200 dark:divide-stone-700 bg-white dark:bg-stone-900">
                   {generateSizeGuide(selectedRegistry.dueDate, selectedRegistry.hemisphere).map((guide, idx) => (
-                    <tr key={idx} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-stone-900">{guide.size}</td>
-                      <td className="px-4 py-3 text-stone-600">{guide.age}</td>
-                      <td className="px-4 py-3 text-stone-600">{guide.months}</td>
-                      <td className="px-4 py-3 text-stone-600">
-                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-stone-100 text-stone-700 text-xs font-medium">
+                    <tr key={idx} className="hover:bg-stone-50 dark:hover:bg-stone-900/50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-stone-900 dark:text-stone-50">{guide.size}</td>
+                      <td className="px-4 py-3 text-stone-600 dark:text-stone-400">{guide.age}</td>
+                      <td className="px-4 py-3 text-stone-600 dark:text-stone-400">{guide.months}</td>
+                      <td className="px-4 py-3 text-stone-600 dark:text-stone-400">
+                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-medium">
                           {guide.seasons}
                         </span>
                       </td>
@@ -3208,51 +3435,51 @@ export default function App() {
         {selectedRegistry && (
           <form onSubmit={updateRegistry} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Baby's Name</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Baby's Name</label>
               <input 
                 name="babyName" 
                 required 
                 defaultValue={selectedRegistry.babyName}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="e.g. Baby Smith"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Due Date</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Due Date</label>
               <input 
                 name="dueDate" 
                 type="date"
                 defaultValue={selectedRegistry.dueDate}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Description</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Description</label>
               <textarea 
                 name="description" 
                 rows={3}
                 defaultValue={selectedRegistry.description}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="A little bit about your registry..."
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">Welcome Message (Optional)</label>
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Welcome Message (Optional)</label>
               <textarea 
                 name="welcomeMessage" 
                 rows={2}
                 defaultValue={selectedRegistry.welcomeMessage}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="A special note for your guests..."
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Currency</label>
+                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Currency</label>
                 <select 
                   name="currency"
                   defaultValue={selectedRegistry.currency || 'USD'}
-                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 >
                   {CURRENCIES.map(c => (
                     <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
@@ -3260,11 +3487,11 @@ export default function App() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Location</label>
+                <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">Location</label>
                 <select 
                   name="hemisphere"
                   defaultValue={selectedRegistry.hemisphere || 'southern'}
-                  className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 >
                   <option value="northern">Northern Hemisphere</option>
                   <option value="southern">Southern Hemisphere</option>
@@ -3284,32 +3511,32 @@ export default function App() {
         {selectedRegistry && (
           <div className="space-y-6">
             <div>
-              <h4 className="text-sm font-medium text-stone-900 mb-3">Current Owners</h4>
+              <h4 className="text-sm font-medium text-stone-900 dark:text-stone-50 mb-3">Current Owners</h4>
               <div className="space-y-2">
-                <div className="flex items-center justify-between p-3 bg-stone-50 rounded-xl border border-stone-100">
+                <div className="flex items-center justify-between p-3 bg-stone-50 dark:bg-stone-900/50 rounded-xl border border-stone-100 dark:border-stone-800">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-medium text-sm">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-medium text-sm">
                       {selectedRegistry.ownerId.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-stone-900">Primary Owner</p>
-                      <p className="text-xs text-stone-500">Creator of this registry</p>
+                      <p className="text-sm font-medium text-stone-900 dark:text-stone-50">Primary Owner</p>
+                      <p className="text-xs text-stone-500 dark:text-stone-400">Creator of this registry</p>
                     </div>
                   </div>
-                  <span className="text-xs font-medium px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Primary</span>
+                  <span className="text-xs font-medium px-2 py-1 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 rounded-full">Primary</span>
                 </div>
                 
                 {selectedRegistry.coOwnerEmails?.map((email) => (
-                  <div key={email} className="flex items-center justify-between p-3 bg-white rounded-xl border border-stone-200">
+                  <div key={email} className="flex items-center justify-between p-3 bg-white dark:bg-stone-900 rounded-xl border border-stone-200 dark:border-stone-700">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-stone-600 font-medium text-sm">
+                      <div className="w-8 h-8 rounded-full bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-600 dark:text-stone-400 font-medium text-sm">
                         {email.charAt(0).toUpperCase()}
                       </div>
-                      <p className="text-sm font-medium text-stone-900">{email}</p>
+                      <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{email}</p>
                     </div>
                     <button 
                       onClick={() => handleRemoveOwner(email)}
-                      className="text-stone-400 hover:text-red-500 transition-colors p-1"
+                      className="text-stone-400 dark:text-stone-500 hover:text-red-500 transition-colors p-1"
                       title="Remove owner"
                     >
                       <X className="w-4 h-4" />
@@ -3319,8 +3546,8 @@ export default function App() {
               </div>
             </div>
 
-            <div className="pt-4 border-t border-stone-100">
-              <h4 className="text-sm font-medium text-stone-900 mb-3">Add Co-Owner</h4>
+            <div className="pt-4 border-t border-stone-100 dark:border-stone-800">
+              <h4 className="text-sm font-medium text-stone-900 dark:text-stone-50 mb-3">Add Co-Owner</h4>
               <form onSubmit={handleAddOwner} className="flex gap-2">
                 <input
                   type="email"
@@ -3328,13 +3555,13 @@ export default function App() {
                   value={newOwnerEmail}
                   onChange={(e) => setNewOwnerEmail(e.target.value)}
                   placeholder="Enter email address"
-                  className="flex-1 rounded-xl border border-stone-200 px-4 py-2 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-sm"
+                  className="flex-1 rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-2 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-sm"
                 />
                 <Button type="submit" disabled={!newOwnerEmail.trim()}>
                   Add
                 </Button>
               </form>
-              <p className="text-xs text-stone-500 mt-2">
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-2">
                 Co-owners can add, edit, and manage items, as well as view the thank you tracker.
               </p>
             </div>
@@ -3348,17 +3575,17 @@ export default function App() {
         title={claimMode === 'claim' ? 'Claim Item' : 'Reserve Item'}
       >
         <form onSubmit={handleClaim} className="space-y-4">
-          <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-4">
+          <div className="p-4 bg-stone-50 dark:bg-stone-900/50 rounded-2xl border border-stone-100 dark:border-stone-800 flex items-center gap-4">
             {claimingItem?.imageUrl ? (
               <img src={claimingItem.imageUrl} alt={claimingItem.name} className="w-16 h-16 rounded-xl object-cover" />
             ) : (
               <CategoryPlaceholder category={claimingItem?.category} name={claimingItem?.name || ''} className="w-16 h-16 rounded-xl" />
             )}
             <div>
-              <h4 className="font-bold text-stone-900">{claimingItem?.name}</h4>
-              <p className="text-sm text-stone-500 line-clamp-1">{claimingItem?.description}</p>
+              <h4 className="font-bold text-stone-900 dark:text-stone-50">{claimingItem?.name}</h4>
+              <p className="text-sm text-stone-500 dark:text-stone-400 line-clamp-1">{claimingItem?.description}</p>
               {claimingItem && claimingItem.quantity > 1 && (
-                <div className="mt-1 flex items-center gap-2 text-xs font-medium text-emerald-600">
+                <div className="mt-1 flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   <Package className="w-3 h-3" />
                   <span>{claimingItem.quantity - (claimingItem.quantityClaimed || 0) - (claimingItem.quantityReserved || 0)} remaining of {claimingItem.quantity}</span>
                 </div>
@@ -3368,7 +3595,7 @@ export default function App() {
 
           {claimingItem && claimingItem.quantity > 1 && (
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">
                 How many are you {claimMode === 'claim' ? 'claiming' : 'reserving'}?
               </label>
               <input
@@ -3378,26 +3605,26 @@ export default function App() {
                 max={claimingItem.quantity - (claimingItem.quantityClaimed || 0) - (claimingItem.quantityReserved || 0)}
                 defaultValue={1}
                 required
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
+            <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">
               Leave a message for the parents (optional)
             </label>
             <textarea
               name="guestMessage"
               rows={3}
-              className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+              className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
               placeholder="Congratulations! We're so excited for you..."
             />
           </div>
 
-          <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 flex items-start gap-3">
-            <Clock className="w-5 h-5 text-amber-600 mt-0.5" />
-            <p className="text-xs text-amber-800 leading-relaxed">
+          <div className="bg-amber-50 dark:bg-amber-900/30 p-3 rounded-xl border border-amber-100 dark:border-amber-800 flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5" />
+            <p className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
               {claimMode === 'claim' 
                 ? "By claiming this item, you're letting others know you've already purchased it or intend to do so immediately."
                 : "Reserving an item holds it for 48 hours, giving you time to complete your purchase."}
@@ -3417,15 +3644,15 @@ export default function App() {
       >
         {contributingItem && (
           <form onSubmit={handleContribute} className="space-y-4">
-            <div className="p-4 bg-stone-50 rounded-2xl border border-stone-100 flex items-center gap-4">
+            <div className="p-4 bg-stone-50 dark:bg-stone-900/50 rounded-2xl border border-stone-100 dark:border-stone-800 flex items-center gap-4">
               {contributingItem.imageUrl ? (
                 <img src={contributingItem.imageUrl} alt={contributingItem.name} className="w-16 h-16 rounded-xl object-cover" />
               ) : (
                 <CategoryPlaceholder category={contributingItem.category} name={contributingItem.name} className="w-16 h-16 rounded-xl" />
               )}
               <div className="flex-1">
-                <h4 className="font-bold text-stone-900">{contributingItem.name}</h4>
-                <div className="flex justify-between text-xs text-stone-500 mt-1">
+                <h4 className="font-bold text-stone-900 dark:text-stone-50">{contributingItem.name}</h4>
+                <div className="flex justify-between text-xs text-stone-500 dark:text-stone-400 mt-1">
                   <span>Target: {getCurrencySymbol(selectedRegistry?.currency)}{contributingItem.price}</span>
                   <span>Remaining: {getCurrencySymbol(selectedRegistry?.currency)}{(contributingItem.price || 0) - (contributingItem.amountContributed || 0)}</span>
                 </div>
@@ -3433,7 +3660,7 @@ export default function App() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">
                 Contribution Amount ({getCurrencySymbol(selectedRegistry?.currency)})
               </label>
               <input
@@ -3443,19 +3670,19 @@ export default function App() {
                 min="0.01"
                 max={(contributingItem.price || 0) - (contributingItem.amountContributed || 0)}
                 required
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="0.00"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1">
+              <label className="block text-sm font-medium text-stone-700 dark:text-stone-300 mb-1">
                 Leave a message (optional)
               </label>
               <textarea
                 name="message"
                 rows={3}
-                className="w-full rounded-xl border border-stone-200 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                className="w-full rounded-xl border border-stone-200 dark:border-stone-700 px-4 py-3 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
                 placeholder="We're so happy to contribute to this gift!..."
               />
             </div>
@@ -3476,7 +3703,7 @@ export default function App() {
             exit={{ opacity: 0, y: 50 }}
             className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50"
           >
-            <div className="bg-stone-900 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3">
+            <div className="bg-stone-900 dark:bg-stone-50 text-white dark:text-stone-900 px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3">
               <div className="bg-emerald-500 p-1 rounded-full">
                 <Check className="w-4 h-4 text-white" />
               </div>
@@ -3487,13 +3714,13 @@ export default function App() {
       </AnimatePresence>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-stone-100 py-12 mt-20">
+      <footer className="bg-white dark:bg-stone-900 border-t border-stone-100 dark:border-stone-800 py-12 mt-20">
         <div className="max-w-7xl mx-auto px-4 text-center">
           <div className="flex items-center justify-center gap-2 mb-4">
-            <Baby className="w-5 h-5 text-emerald-600" />
-            <span className="font-bold text-stone-800">Little Steps</span>
+            <Baby className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            <span className="font-bold text-stone-800 dark:text-stone-200">Little Steps</span>
           </div>
-          <p className="text-stone-400 text-sm">© 2026 Little Steps Registry. Made with love for new parents.</p>
+          <p className="text-stone-400 dark:text-stone-500 text-sm">© 2026 Little Steps Registry. Made with love for new parents.</p>
         </div>
       </footer>
     </div>

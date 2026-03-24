@@ -25,6 +25,7 @@ export interface GuestBookEntry {
   authorName: string;
   message: string;
   createdAt: any;
+  authorId?: string;
 }
 
 export interface RegistryItem {

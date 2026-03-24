@@ -126,11 +126,12 @@ service cloud.firestore {
     }
 
     function isValidGuestBookEntry(data) {
-      return hasOnlyAllowedFields(['registryId', 'authorName', 'message', 'createdAt']) &&
+      return hasOnlyAllowedFields(['registryId', 'authorName', 'message', 'createdAt', 'authorId']) &&
              data.registryId is string && data.registryId.size() > 0 &&
              data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
              data.message is string && data.message.size() > 0 && data.message.size() < 2000 &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             (!('authorId' in data) || (data.authorId is string && data.authorId == request.auth.uid));
     }
 
     // ===============================================================

@@ -85,7 +85,8 @@
         "registryId": { "type": "string" },
         "authorName": { "type": "string" },
         "message": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "authorId": { "type": "string" }
       },
       "required": ["registryId", "authorName", "message", "createdAt"]
     }
