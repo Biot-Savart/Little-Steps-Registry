@@ -1180,7 +1180,7 @@ export default function App() {
 
   const claimItem = (item: RegistryItem) => {
     if (!user) {
-      alert('Please sign in to claim an item!');
+      setIsAuthModalOpen(true);
       return;
     }
     setClaimingItem(item);
@@ -1190,7 +1190,7 @@ export default function App() {
 
   const reserveItem = (item: RegistryItem) => {
     if (!user) {
-      alert('Please sign in to reserve an item!');
+      setIsAuthModalOpen(true);
       return;
     }
     setClaimingItem(item);
@@ -2366,9 +2366,9 @@ export default function App() {
                           viewMode === 'grid' ? "border-t" : "border-t sm:border-t-0 sm:border-l flex flex-col justify-center w-full sm:w-40"
                         )}>
                           {(() => {
-                            const userClaim = item.claims?.find(c => c.uid === user?.uid);
-                            const isLegacyOwner = item.claimedBy === user?.uid;
-                            const hasClaim = userClaim || isLegacyOwner;
+                            const userClaim = user ? item.claims?.find(c => c.uid === user.uid) : undefined;
+                            const isLegacyOwner = user ? item.claimedBy === user.uid : false;
+                            const hasClaim = !!(userClaim || isLegacyOwner);
                             const remainingQty = item.quantity - (item.quantityClaimed || 0) - (item.quantityReserved || 0);
 
                             if (item.isGroupGifting && item.status === 'available') {
